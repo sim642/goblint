@@ -66,11 +66,13 @@ let _ = ()
       ; reg Std "otherfun"        "[]"           "Sets the name of other functions."
       ; reg Std "allglobs"        "false"        "Prints access information about all globals, not just races."
       ; reg Std "keepcpp"         "false"        "Keep the intermediate output of running the C preprocessor."
+      ; reg Std "tempDir"         "''"           "Reuse temporary directory for preprocessed files."
       ; reg Std "merge-conflicts" "true"         "Abort on merging conflicts."
       ; reg Std "cppflags"        "''"           "Pre-processing parameters."
       ; reg Std "kernel"          "false"        "For analyzing Linux Device Drivers."
       ; reg Std "dump_globs"      "false"        "Print out the global invariant."
-      ; reg Std "result"          "'none'"       "Result style: none, indented, compact, or pretty."
+      ; reg Std "result"          "'none'"       "Result style: none, indented, compact, fast_xml, or pretty."
+      ; reg Std "warnstyle"       "'pretty'"     "Result style: legacy, pretty, or xml."
       ; reg Std "solver"          "'effectWCon'" "Picks the solver."
       ; reg Std "comparesolver"   "''"           "Picks another solver for comparison."
       ; reg Std "solverdiffs"     "false"        "Print out solver differences."
@@ -115,17 +117,17 @@ let _ = ()
       ; reg Analyses "ana.int.cdebug"      "false" "Debugging output for wrapped interval analysis."
       ; reg Analyses "ana.int.cwiden"      "'basic'" "Widing variant to use for wrapped interval analysis ('basic', 'double')"
       ; reg Analyses "ana.int.cnarrow"     "'basic'" "Widing variant to use for wrapped interval analysis ('basic', 'half')"
-      ; reg Analyses "ana.int.queries"     "false"  "Use queries in the base analysis to improve abstract values using EvalInt in other domains"
       ; reg Analyses "ana.file.optimistic" "false" "Assume fopen never fails."
       ; reg Analyses "ana.spec.file"       ""      "Path to the specification file."
+      ; reg Analyses "ana.pml.debug"       "true"  "Insert extra assertions into Promela code for debugging."
       ; reg Analyses "ana.arinc.assume_success" "true"    "Assume that all ARINC functions succeed (sets return code to NO_ERROR, otherwise invalidates it)."
       ; reg Analyses "ana.arinc.simplify"    "true" "Simplify the graph by merging functions consisting of the same edges and contracting call chains where functions just consist of another call."
       ; reg Analyses "ana.arinc.validate"    "true" "Validate the graph and output warnings for: call to functions without edges, multi-edge-calls for intermediate contexts, branching on unset return variables."
       ; reg Analyses "ana.arinc.export"    "true" "Generate dot graph and Promela for ARINC calls right after analysis. Result is saved in result/arinc.out either way."
-      ; reg Analyses "ana.arinc.debug_pml" "true"  "Insert extra assertions into Promela code for debugging."
       ; reg Analyses "ana.arinc.merge_globals" "false"  "Merge all global return code variables into one."
       ; reg Analyses "ana.hashcons"        "true"  "Should we try to save memory by hashconsing?"
       ; reg Analyses "ana.restart_count"   "1"     "How many times SLR4 is allowed to switch from restarting iteration to increasing iteration."
+      ; reg Analyses "ana.mutex.disjoint_types" "true" "Do not propagate basic type writes to all struct fields"
 
 (* {4 category [Transformations]} *)
 let _ = ()
@@ -138,7 +140,6 @@ let _ = ()
       ; reg Experimental "exp.mincfg"            "false" "Try to minimize the number of CFG nodes."
       ; reg Experimental "exp.nested"            "false" "Use a nested constraint system."
       ; reg Experimental "exp.field_insensitive" "false" "Control the field sensitivity of the Base analysis."
-      ; reg Experimental "exp.eclipse"           "false" "Flag for Goblin's Eclipse Plugin."
       ; reg Experimental "exp.check"             "[]"    "Check whether there is a race involving this variable/type."
       ; reg Experimental "exp.earlyglobs"        "false" "Side-effecting of globals right after initialization."
       ; reg Experimental "exp.write-races"       "false" "Ignores read accesses altogether in reporting races."
@@ -147,7 +148,6 @@ let _ = ()
       ; reg Experimental "exp.region-offsets"    "false" "Considers offsets for region accesses."
       (* ; reg Experimental "exp.unmerged-fields"   "false" "Does not merge accesses to possibly same fields, unsound." *)
       (* ; reg Experimental "exp.die-on-collapse"   "false" "Raise an exception as soon as an array collapses." *)
-      ; reg Experimental "exp.type-inv"          "false" "Should we use type invariants?"
       ; reg Experimental "exp.unique"            "[]"    "For types that have only one value."
       ; reg Experimental "exp.sharir-pnueli"     "false" "Use the Sharir/Pnueli algorithm for solving."
       ; reg Experimental "exp.forward"           "false" "Use implicit forward propagation instead of the demand driven approach."
@@ -156,19 +156,14 @@ let _ = ()
       ; reg Experimental "exp.no-int-context"    "false" "Ignore integer values in function contexts."
       ; reg Experimental "exp.malloc-fail"       "false" "Consider the case where malloc fails."
       ; reg Experimental "exp.volatiles_are_top" "true"  "volatile and extern keywords set variables permanently to top"
-      ; reg Experimental "exp.need"              "false" "Bidirectional analysis"
       ; reg Experimental "exp.back_loop_sep"     "false" "Only widen on nodes with back edges."
       ; reg Experimental "exp.single-threaded"   "false" "Ensures analyses that no threads are created."
       ; reg Experimental "exp.globs_are_top"     "false" "Set globals permanently to top."
-      ; reg Experimental "exp.use_gen_solver"    "true"  "Use a generic solver instead iterating like the other tool?"
       ; reg Experimental "exp.unknown_funs_spawn" "true" "Should unknown function calls switch to MT-mode?"
       ; reg Experimental "exp.precious_globs"    "[]"    "Global variables that should be handled flow-sensitively when using earlyglobs."
       ; reg Experimental "exp.list-type"         "false" "Use a special abstract value for lists."
       ; reg Experimental "exp.g2html_path"       "'.'"   "Location of the g2html.jar file."
-      ; reg Experimental "questions.file"        ""      "Questions database file"
       ; reg Experimental "exp.extraspecials"     "[]"    "List of functions that must be analyzed as unknown extern functions"
-      ; reg Experimental "exp.backwards"         "false" "Backwards analysis"
-      ; reg Experimental "exp.unsoundbasic"      "true"  "Do not propagate basic type writes to all struct fields"
       ; reg Experimental "exp.ignored_threads"   "[]"    "Eliminate accesses in these threads"
       ; reg Experimental "exp.no-narrow"         "false" "Overwrite narrow a b = a"
 
@@ -190,11 +185,14 @@ let _ = ()
       ; reg Debugging "dbg.print_dead_code" "false" "Print information about dead code"
       ; reg Debugging "dbg.slice.on"        "false" "Turn slicer on or off."
       ; reg Debugging "dbg.slice.n"         "10"    "How deep function stack do we analyze."
+      ; reg Debugging "dbg.earlywarn"       "false" "Output warnings already while solving (may lead to spurious warnings/asserts)."
+      ; reg Debugging "dbg.warn_with_context" "false" "Keep warnings for different contexts apart (currently only done for asserts)."
+      ; reg Debugging "dbg.regression"      "false" "Only output warnings for assertions that have an unexpected result (no comment, comment FAIL, comment UNKNOWN)"
 
 let default_schema = "\
 { 'id'              : 'root'
 , 'type'            : 'object'
-, 'required'        : ['outfile', 'includes', 'kernel_includes', 'custom_includes', 'custom_incl', 'custom_libc', 'justcil', 'justcfg', 'dopartial', 'printstats', 'gccwarn', 'noverify', 'mainfun', 'exitfun', 'otherfun', 'allglobs', 'keepcpp', 'merge-conflicts', 'cppflags', 'kernel', 'dump_globs', 'result', 'solver', 'allfuns', 'nonstatic', 'colors', 'g2html']
+, 'required'        : ['outfile', 'includes', 'kernel_includes', 'custom_includes', 'custom_incl', 'custom_libc', 'justcil', 'justcfg', 'dopartial', 'printstats', 'gccwarn', 'noverify', 'mainfun', 'exitfun', 'otherfun', 'allglobs', 'keepcpp', 'tempDir', 'merge-conflicts', 'cppflags', 'kernel', 'dump_globs', 'result', 'warnstyle', 'solver', 'allfuns', 'nonstatic', 'colors', 'g2html']
 , 'additionalProps' : false
 , 'properties' :
   { 'ana' :
@@ -234,11 +232,17 @@ let default_schema = "\
   , 'otherfun'        : {}
   , 'allglobs'        : {}
   , 'keepcpp'         : {}
+  , 'tempDir'         :
+    { 'type'            : 'string'
+    }
   , 'merge-conflicts' : {}
   , 'cppflags'        : {}
   , 'kernel'          : {}
   , 'dump_globs'      : {}
   , 'result'          :
+    { 'type'            : 'string'
+    }
+  , 'warnstyle'          :
     { 'type'            : 'string'
     }
   , 'solver'          : {}

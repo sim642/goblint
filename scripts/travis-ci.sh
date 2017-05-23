@@ -38,9 +38,8 @@ else
     sudo apt-get install -qq ocaml ocaml-native-compilers camlp4-extra opam
 fi
 
-export OPAMYES=1
-./make.sh travis
+# install dependencies
+OPAMYES=1 ./make.sh setup
 eval `opam config env`
-
 # compile
 ./make.sh nat

@@ -17,7 +17,7 @@ struct
   module C = D
 
   let val_of x = x
-  let context x = D.bot ()
+  let context x = if GobConfig.get_bool "exp.full-context" then x else D.bot ()
 
   let otherstate _ = D.top ()
   let exitstate  _ = D.top ()
@@ -126,7 +126,7 @@ struct
         match D.get_int_interval_for_cil_exp d e with
         | Some i, Some s ->
           if (Int64.compare i s) <= 0 then
-             `Interval (IntDomain.Interval.of_interval (i,s))
+            `Interval (IntDomain.Interval.of_interval (i,s))
           else Result.bot ()
         | Some i, _ ->  `Interval (IntDomain.Interval.starting i)
         | _, Some s -> `Interval (IntDomain.Interval.ending s)

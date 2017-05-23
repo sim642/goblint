@@ -150,61 +150,6 @@ struct
   let context () (_,c) = LD.pretty () c
   let node (n,_) = n
 end
-
-module VarCS =
-struct
-  type t = MyCFG.node * location
-
-  let hash (n,l) =
-    match n with
-    | MyCFG.Statement s -> Hashtbl.hash (l, s.sid, 0)
-    | MyCFG.Function f -> Hashtbl.hash (l, f.vid, 1)
-    | MyCFG.FunctionEntry f -> Hashtbl.hash (l, f.vid, 2)
-
-  let equal (n1,d1) (n2,d2) =
-    MyCFG.Node.equal n1 n2 && compareLoc d1 d1 = 0
-
-  let getLocation (n,d) = MyCFG.getLoc n
-
-  let pretty () (n,d) =
-    match n with
-    | MyCFG.Statement s -> dprintf "node \"%a\"" Basetype.CilStmt.pretty s
-    | MyCFG.Function f -> dprintf "call of %s" f.vname
-    | MyCFG.FunctionEntry f -> dprintf "entry state of %s" f.vname
-
-  let pretty_trace () x =
-    dprintf "%a on %a" pretty x Basetype.ProgLines.pretty (getLocation x)
-end
-
-module Edge : Hashtbl.HashedType with type t = MyCFG.node * MyCFG.edge * MyCFG.node =
-struct
-  type t = MyCFG.node * MyCFG.edge * MyCFG.node
-  let rec list_eq eq xs ys =
-    match xs, ys with
-    | [], [] -> true
-    | x::xs, y::ys when eq x y -> list_eq eq xs ys
-    | _ -> false
-
-  let eq_lval l1 l2 = Util.equals (Lval l1) (Lval l2)
-
-  open MyCFG
-  let eq_edge e1 e2 =
-    match e1, e2 with
-    | Assign (l1,e1), Assign (l2,e2) -> Util.equals e1 e2 && eq_lval l1 l2
-    | Proc (Some l1, e1, es1), Proc (Some l2, e2, es2) -> eq_lval l1 l2 && Util.equals e1 e2 && list_eq Util.equals es1 es2
-    | Proc (None, e1, es1), Proc (None, e2, es2) -> Util.equals e1 e2 && list_eq Util.equals es1 es2
-    | Entry f1, Entry f2 -> f1.svar.vid = f2.svar.vid
-    | Ret (Some e1,f1), Ret (Some e2,f2)-> Util.equals e1 e2 && f1.svar.vid = f2.svar.vid
-    | Ret (None,f1), Ret (None,f2) -> f1.svar.vid = f2.svar.vid
-    | Test (e1,b1), Test (e2,b2) -> b1 = b2 && Util.equals e1 e2
-    | ASM (s1,o1,i1), ASM (s2,o2,i2) -> s1 = s2
-    | Skip, Skip -> true
-    | SelfLoop, SelfLoop -> true
-    | _ -> false
-  let equal (f1,e1,t1) (f2,e2,t2) = MyCFG.Node.equal f1 f2 && MyCFG.Node.equal t1 t2 && eq_edge e1 e2
-  let hash (f,e,t) = MyCFG.Node.hash f lxor MyCFG.Node.hash t
-end
-
 exception Deadcode
 
 
@@ -416,6 +361,8 @@ end
 *)
 type ('d,'g) ctx =
   { ask      : Queries.t -> Queries.Result.t
+  ; node     : MyCFG.node
+  ; context  : Obj.t
   ; local    : 'd
   ; global   : varinfo -> 'g
   ; presub   : (string * Obj.t) list
@@ -470,34 +417,6 @@ sig
   val combine : (D.t, G.t) ctx -> lval option -> exp -> varinfo -> exp list -> D.t -> D.t
 end
 
-
-module type BackwardSpec =
-sig
-  module D : Lattice.S
-  module G : Lattice.S
-
-  val name: string
-
-  val startstate: varinfo -> D.t
-
-  val body: fundec -> D.t -> D.t
-  val assign : lval -> exp -> D.t -> D.t  
-  val enter : lval option -> exp -> exp list -> D.t -> D.t  
-end
-
-module UnitBackwardSpec : BackwardSpec = 
-struct
-  module D = Lattice.Unit
-  module G = Lattice.Unit
-
-  let name = "unit"
-
-  let startstate _ = ()
-
-  let body f st = st
-  let assign lv rv st = st
-  let enter lvo fn args st = st
-end
 
 (** A side-effecting system. *)
 module type MonSystem =
@@ -566,28 +485,6 @@ module type GenericGlobSolver =
     val solve : (S.LVar.t*S.D.t) list -> (S.GVar.t*S.G.t) list -> S.LVar.t list -> S.D.t LH.t * S.G.t GH.t
   end
 
-module BackwardsResultType (S:BackwardSpec) =
-struct
-  open S
-  include Printable.Prod (D) (Basetype.CilFundec)
-  let isSimple _ = false
-  let short w _ = ""
-  let toXML (x,_ as st:t) =
-    let open Xml in
-    let flatten_single = function
-      | Element (_,_,[x]) | x ->  x in
-    let try_replace_text s = function
-      | Element (tag, attr, children) -> Element (tag, ["text", s], children)
-      | x -> x
-    in
-    let esc = Goblintutil.escape in
-    let res = try_replace_text "Value" (flatten_single (D.toXML x)) in
-    Element ("Node",["text",esc (short 80 st)],[res])
-  let pretty () (x,_) = D.pretty () x
-  let printXml f (d,fd) =
-    D.printXml f d
-end
-
 module ResultType2 (S:Spec) =
 struct
   open S
@@ -645,7 +542,7 @@ struct
   let val_of x = x
   (* Assume that context is same as local domain. *)
 
-  let part_access _ _ _ _ = 
+  let part_access _ _ _ _ =
     (Access.LSSSet.singleton (Access.LSSet.empty ()), Access.LSSet.empty ())
     (* No partitioning on accesses and not locks *)
 end

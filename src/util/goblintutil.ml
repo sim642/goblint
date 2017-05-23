@@ -74,6 +74,8 @@ let old_accesses = ref true
 (** The file where everything is output *)
 let out = ref stdout
 
+(** Temp directory, set in maingoblint.ml, but used by the OSEK analysis. *)
+let tempDirName = ref "goblint_temp"
 
 (* Type invariant variables. *)
 let type_inv_tbl = Hashtbl.create 13
@@ -424,5 +426,6 @@ let arinc_base_priority = if scrambled then "M164" else "BASE_PRIORITY"
 let arinc_period        = if scrambled then "M165" else "PERIOD"
 let arinc_time_capacity = if scrambled then "M166" else "TIME_CAPACITY"
 
-
 let get_goblint_path = Filename.dirname BatSys.executable_name
+
+let tryopt f a = try Some (f a) with _ -> None (* reason: match .. with _ does not include exceptions, or-patterns currently not supported for exceptions *)

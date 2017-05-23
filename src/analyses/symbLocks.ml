@@ -177,19 +177,19 @@ struct
     let one_perelem (e,a,l) xs =
       (* ignore (printf "one_perelem (%a,%a,%a)\n" Exp.pretty e Exp.pretty a Exp.pretty l); *)
       match Exp.fold_offs (Exp.replace_base (dummyFunDec.svar,`NoOffset) e l) with
-      | Some (v, o) -> 
-        let l = sprint 80 (d_offset (text "*") () o) in
+      | Some (v, o) ->
+        let l = Pretty.sprint 80 (d_offset (text "*") () o) in
         (* ignore (printf "adding lock %s\n" l); *)
         LSSet.add ("p-lock",l) xs
       | None -> xs
     in
     (* Array lockstep also returns a triple of exps. Second and third elements in
-    triples are access and mutex exps. Common index is replaced with *.
-    First element is unused.
+       triples are access and mutex exps. Common index is replaced with *.
+       First element is unused.
 
-    To find if this pattern matches, we try to separate the base variable and
-    the index from both -- access exp and mutex exp. We check if indexes match
-    and the rest is concrete. Then replace the common index with *. *)
+       To find if this pattern matches, we try to separate the base variable and
+       the index from both -- access exp and mutex exp. We check if indexes match
+       and the rest is concrete. Then replace the common index with *. *)
     let one_lockstep (_,a,m) xs =
       match m with
       | AddrOf (Var v,o) ->
@@ -229,7 +229,7 @@ struct
              with Lattice.TopValue -> Queries.ES.top () end
          | _ -> Queries.ES.singleton e)
     in
-    Queries.ES.fold do_lockstep matching_exps 
+    Queries.ES.fold do_lockstep matching_exps
       (Queries.ES.fold do_perel matching_exps (LSSet.empty ()))
 
   let part_access ctx e v _ =

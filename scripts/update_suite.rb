@@ -3,7 +3,8 @@
 require 'find'
 require 'fileutils'
 require 'timeout'
-timeout = 15 # seconds
+require 'pathname'
+timeout = 5 # seconds
 
 def puts(o) # puts is not atomic and messes up linebreaks with multiple threads
   print(o+"\n")
@@ -26,7 +27,8 @@ end
 goblint = File.join(Dir.getwd,"goblint")
 goblintbyte = File.join(Dir.getwd,"goblint.byte")
 if File.exists?(goblintbyte) then
-  puts "Running the byte-code version!"
+  puts "Running the byte-code version! Continue? (y/n)"
+  exit unless $stdin.gets()[0] == 'y'
   goblint = goblintbyte
 elsif not File.exist?(goblint) then
   fail "Goblint not present in working directory. Please run script from goblint dir!"
@@ -72,9 +74,8 @@ end
 #Command line parameters
 #Either only run a single test, or
 #"future" will also run tests we normally skip
-# -v at the end stands for verbose output
-verbose = ARGV.last == "-v" && ARGV.pop
-parallel = ARGV.last == "-p" && ARGV.pop
+dump = ARGV.last == "-d" && ARGV.pop
+sequential = ARGV.last == "-s" && ARGV.pop
 report = ARGV.last == "-r" && ARGV.pop
 only = ARGV[0] unless ARGV[0].nil?
 if only == "future" then
@@ -106,7 +107,7 @@ regs.sort.each do |d|
   group.sort.each do |f|
     next if File.basename(f)[0] == ?.
     next if f =~ /goblin_temp/
-    next unless f =~ /.*\.c$/
+    next unless f =~ /^[0-9]+-.*\.c$/
     id = gid + "/" + f[0..1]
     testname = f[3..-3]
     next unless only.nil? or testname == only
@@ -127,7 +128,7 @@ regs.sort.each do |d|
       if obj =~ /#line ([0-9]+).*$/ then
         i = $1.to_i - 1
       end
-      next if obj =~ /^\s*\/\//
+      next if obj =~ /^\s*\/\// || obj =~ /^\s*\/\*([^*]|\*+[^*\/])*\*\/$/
       if obj =~ /RACE/ then
         hash[i] = if obj =~ /NORACE/ then "norace" else "race" end
       elsif obj =~ /DEADLOCK/ then
@@ -186,7 +187,8 @@ doproject = lambda do |p|
   filename = File.basename(filepath)
   Dir.chdir(dirname)
   clearline
-  print "Testing #{p.id} #{p.group}/#{p.name}"
+  id = "#{p.id} #{p.group}/#{p.name}"
+  print "Testing #{id}"
   warnfile = File.join(testresults, p.name + ".warn.txt")
   statsfile = File.join(testresults, p.name + ".stats.txt")
 #   confile = File.join(testresults, p.name + ".con.txt")
@@ -199,23 +201,27 @@ doproject = lambda do |p|
     p.size = `wc -l #{cilfile}`.split[0]
   end
   starttime = Time.now
-  cmd = "#{goblint} #{filename} #{p.params} #{ENV['gobopt']} 1>#{warnfile} --set printstats true  2>#{statsfile}"
+  cmd = "#{goblint} #{filename} #{p.params} #{ENV['gobopt']} 1>#{warnfile} --sets warnstyle \"legacy\" --set printstats true  2>#{statsfile}"
   pid = Process.spawn(cmd)
   begin
     Timeout::timeout(timeout) {Process.wait pid}
   rescue Timeout::Error
-    puts "\t Timeout reached!".red + " Killing process #{pid}..."
-    timedout.push "#{p.id}-#{p.group}/#{p.name}"
-    Process.kill('TERM', pid)
+    puts "\t #{id} reached timeout of #{timeout}s!".red + " Killing process #{pid}..."
+    timedout.push id
+    Process.kill('INT', pid)
     return
   end
   endtime   = Time.now
   status = $?.exitstatus
   if status != 0 then
     reason = if status == 2 then "exception" elsif status == 3 then "verify" end
-    puts "\t Status: #{status} (#{reason})".red
+    clearline
+    puts "Testing #{id}" + "\t Status: #{status} (#{reason})".red
     stats = File.readlines statsfile
     if stats[0] =~ /exception/ then
+      relpath = (Pathname.new filepath).relative_path_from(Pathname.new File.dirname(goblint))
+      lastline = (File.readlines warnfile).last()
+      puts lastline.strip().sub filename, relpath.to_s unless lastline.nil?
       puts stats[0..9].join()
     end
     if status == 3 then
@@ -234,7 +240,9 @@ doproject = lambda do |p|
     f.puts vrsn
   end
 end
-if parallel then
+if sequential then
+  projects.each &doproject
+else
   begin
     require 'parallel'
     Parallel.each projects, &doproject
@@ -242,11 +250,8 @@ if parallel then
     puts "Missing dependency. Please run: sudo gem install parallel"
     raise e
   end
-else
-  projects.each &doproject
 end
 clearline
-`pkill goblint` # FIXME somehow the killing above is not complete...
 
 #Outputting
 header = <<END
@@ -268,6 +273,7 @@ File.open(theresultfile, "w") do |f|
   f.puts "<table border=2 cellpadding=4>"
   gname = ""
   projects.each do |p|
+    id = "#{p.id} #{p.group}/#{p.name}"
     is_ok = true
     if p.group != gname then
       gname = p.group
@@ -320,7 +326,7 @@ File.open(theresultfile, "w") do |f|
       check = lambda {|cond|
         if cond then correct += 1
         else
-          puts "Expected #{type}, but registered #{warnings[idx]} on #{p.name}:#{idx}" if verbose
+          puts "Expected #{type}, but registered #{warnings[idx]} on #{p.name}:#{idx}"
           ferr = idx if ferr.nil? or idx < ferr
         end
       }
@@ -365,9 +371,17 @@ File.open(theresultfile, "w") do |f|
       f.puts "<td style =\"color: green\">NONE</td>"
     else
       alliswell = false
-      if not timedout.include? "#{p.id}-#{p.group}/#{p.name}" then
+      if not timedout.include? id then
         failed.push p.name
-        puts "#{p.id} #{p.group}/#{p.name} \e[31mfailed! \u2620\e[0m"
+        exc = if lines[0] =~ /exception/ then " (see exception above)" else "" end
+        puts "#{id}" + " failed#{exc}!".red
+        if dump then
+          puts "============== WARNINGS ==============="
+          puts File.read(File.join(testresults, warnfile))
+          puts "================ STATS ================"
+          puts File.read(File.join(testresults, statsfile))
+          puts "======================================="
+        end
       end
       if not is_ok or ferr.nil? then
         f.puts "<td style =\"color: red\">FAILED</td>"
@@ -394,8 +408,7 @@ if report then
   puts "  Groups: ./scripts/update_suite.rb group mutex"
   puts "  Exclude group: ./scripts/update_suite.rb group -mutex"
   puts "  Future: ./scripts/update_suite.rb future"
-  puts "  Parallel execution: append -p"
-  puts "  Verbose output: append -v"
+  puts "  Force sequential execution: append -s"
   puts ("Results: " + theresultfile)
 end
 if alliswell then

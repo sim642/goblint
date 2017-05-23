@@ -114,7 +114,7 @@ struct
       Queries.LS.fold gather_addr (Queries.LS.remove (dummyFunDec.svar, `NoOffset) a) []
     | _ -> []
 
-  let lock ctx rw may_fail a lv arglist ls =
+  let lock ctx rw may_fail return_value_when_aquired a lv arglist ls =
     let is_a_blob addr =
       match LockDomain.Addr.to_var addr with
       | [a] -> a.vname.[0] = '('
@@ -128,8 +128,8 @@ struct
         match lv with
         | None -> if may_fail then ls else nls
         | Some lv ->
-          ctx.split nls (Lval lv) false;
-          if may_fail then ctx.split ls (Lval lv) true;
+          ctx.split nls (Lval lv ) return_value_when_aquired;
+          if may_fail then ctx.split ls (Lval lv) (not return_value_when_aquired);
           raise Analyses.Deadcode
       end
     in
@@ -142,7 +142,7 @@ struct
 
   let arinc_analysis_activated = ref false
 
-  let access_one_top ctx write reach exp = 
+  let access_one_top ctx write reach exp =
     (* ignore (Pretty.printf "access_one_top %b %b %a:\n" write reach d_exp exp); *)
     let fl = get_flag ctx.presub in
     if BS.Flag.is_multi fl then
@@ -217,9 +217,10 @@ struct
       -> Lockset.add (big_kernel_lock,true) ctx.local
     | _, "_unlock_kernel"
       -> Lockset.remove (big_kernel_lock,true) ctx.local
-    | `Lock (failing, rw), _
+    | `Lock (failing, rw, zero_return_when_aquired), _
       -> let arglist = if f.vname = "LAP_Se_WaitSemaphore" then [List.hd arglist] else arglist in
-      lock ctx rw failing ctx.ask lv arglist ctx.local
+      (*print_endline @@ "Mutex `Lock "^f.vname;*)
+      lock ctx rw failing zero_return_when_aquired ctx.ask lv arglist ctx.local
     | `Unlock, "__raw_read_unlock"
     | `Unlock, "__raw_write_unlock"  ->
       let drop_raw_lock x =
@@ -235,8 +236,9 @@ struct
         | _ -> x
       in
       unlock (fun l -> remove_rw (drop_raw_lock l))
-    | `Unlock, _
-      -> unlock remove_rw
+    | `Unlock, _ ->
+      (*print_endline @@ "Mutex `Unlock "^f.vname;*)
+      unlock remove_rw
     | _, "spinlock_check" -> ctx.local
     | _, "acquire_console_sem" when get_bool "kernel" ->
       Lockset.add (console_sem,true) ctx.local
@@ -250,8 +252,11 @@ struct
         | Some fnc -> (fnc act arglist)
         | _ -> arglist
       in
-      List.iter (access_one_top ctx false false) (arg_acc `Read);
+      List.iter (access_one_top ctx false true) (arg_acc `Read);
       List.iter (access_one_top ctx true  true ) (arg_acc `Write);
+      (match lv with
+      | Some x -> access_one_top ctx true false (AddrOf x)
+      | None -> ());
       ctx.local
 
   let enter ctx lv f args : (D.t * D.t) list =
@@ -261,7 +266,7 @@ struct
     access_one_top ctx false false fexp;
     begin match lv with
       | None      -> ()
-      | Some lval -> access_one_top ctx true false (Lval lval)
+      | Some lval -> access_one_top ctx true false (AddrOf lval)
     end;
     List.iter (access_one_top ctx false false) args;
     al

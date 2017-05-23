@@ -6,7 +6,6 @@ open Defaults
 open Printf
 open Json
 open Goblintutil
-open Questions
 
 let writeconf = ref false
 let writeconffile = ref ""
@@ -42,6 +41,21 @@ let print_help ch =
   fprintf ch " are used instead of double-quotes (\").\n\n";
   fprintf ch "A <jpath> is a path in a json structure. E.g. 'field.another_field[42]';\n";
   fprintf ch "in addition to the normal syntax you can use 'field[+]' append to an array.\n\n"
+
+(* The temp directory for preprocessing the input files *)
+let create_temp_dir () =
+  if Sys.file_exists (get_string "tempDir") then
+    Goblintutil.tempDirName := get_string "tempDir"
+  else
+    (* Using the stdlib to create a free tmp file name. *)
+    let tmpDirRel = Filename.temp_file ~temp_dir:"" "goblint_temp_" "" in
+    (* ... and then delete it to create a directory instead. *)
+    Sys.remove tmpDirRel;
+    let tmpDirName = create_dir tmpDirRel in
+    Goblintutil.tempDirName := tmpDirName
+
+let remove_temp_dir () =
+  if not (get_bool "keepcpp") then ignore (Goblintutil.rm_rf !Goblintutil.tempDirName)
 
 (** [Arg] option specification *)
 let option_spec_list =
@@ -134,24 +148,24 @@ let handle_flags () =
     end
 
 (** Use gcc to preprocess a file. Returns the path to the preprocessed file. *)
-let preprocess_one_file cppflags includes dirName fname =
+let preprocess_one_file cppflags includes fname =
   (* The actual filename of the preprocessed sourcefile *)
-  let nname =  Filename.concat dirName (Filename.basename fname) in
+  let nname =  Filename.concat !Goblintutil.tempDirName (Filename.basename fname) in
+  if Sys.file_exists (get_string "tempDir") then
+    nname
+  else
+    (* Preprocess using cpp. *)
+    (* ?? what is __BLOCKS__? is it ok to just undef? this? http://en.wikipedia.org/wiki/Blocks_(C_language_extension) *)
+    let command = Config.cpp ^ " --undef __BLOCKS__ " ^ cppflags ^ " " ^ includes ^ " \"" ^ fname ^ "\" -o \"" ^ nname ^ "\"" in
+    if get_bool "dbg.verbose" then print_endline command;
 
-  (* Preprocess using cpp. *)
-  (* ?? what is __BLOCKS__? is it ok to just undef? this? http://en.wikipedia.org/wiki/Blocks_(C_language_extension) *)
-  let command = Config.cpp ^ " --undef __BLOCKS__ " ^ cppflags ^ " " ^ includes ^ " \"" ^ fname ^ "\" -o \"" ^ nname ^ "\"" in
-  if get_bool "dbg.verbose" then print_endline command;
-
-  (* if something goes wrong, we need to clean up and exit *)
-  let rm_and_exit () =
-    if not (get_bool "keepcpp") then ignore (Goblintutil.rm_rf dirName); raise BailFromMain
-  in
-  try match Unix.system command with
-    | Unix.WEXITED 0 -> nname
-    | _ -> eprintf "Goblint: Preprocessing failed."; rm_and_exit ()
-  with Unix.Unix_error (e, f, a) ->
-    eprintf "%s at syscall %s with argument \"%s\".\n" (Unix.error_message e) f a; rm_and_exit ()
+    (* if something goes wrong, we need to clean up and exit *)
+    let rm_and_exit () = remove_temp_dir (); raise BailFromMain in
+    try match Unix.system command with
+      | Unix.WEXITED 0 -> nname
+      | _ -> eprintf "Goblint: Preprocessing failed."; rm_and_exit ()
+    with Unix.Unix_error (e, f, a) ->
+      eprintf "%s at syscall %s with argument \"%s\".\n" (Unix.error_message e) f a; rm_and_exit ()
 
 (** Preprocess all files. Return list of preprocessed files and the temp directory name. *)
 let preprocess_files () =
@@ -179,7 +193,7 @@ let preprocess_files () =
 
   (* fill include flags *)
   let one_include_f f x = includes := "-I " ^ f (string x) ^ " " ^ !includes in
-  if get_string "ana.osek.oil" <> "" then includes := "-include " ^ (!OilUtil.header_path ^ !OilUtil.header) ^" "^ !includes;
+  if get_string "ana.osek.oil" <> "" then includes := "-include " ^ (Filename.concat !Goblintutil.tempDirName OilUtil.header) ^" "^ !includes;
   (*   if get_string "ana.osek.tramp" <> "" then includes := "-include " ^ get_string "ana.osek.tramp" ^" "^ !includes; *)
   get_list "includes" |> List.iter (one_include_f identity);
   get_list "kernel_includes" |> List.iter (Filename.concat kernel_root |> one_include_f);
@@ -208,22 +222,16 @@ let preprocess_files () =
       ]
   end;
 
-  (* The temp directory for preprocessing the input files *)
-  let dirName = Goblintutil.create_dir "goblint_temp" in
-
   (* preprocess all the files *)
   if get_bool "dbg.verbose" then print_endline "Preprocessing files.";
-  List.rev_map (preprocess_one_file !cppflags !includes dirName) !cFileNames, dirName
-
+  List.rev_map (preprocess_one_file !cppflags !includes) !cFileNames
 
 (** Possibly merge all postprocessed files *)
-let merge_preprocessed (cpp_file_names, dirName) =
+let merge_preprocessed cpp_file_names =
   (* get the AST *)
   if get_bool "dbg.verbose" then print_endline "Parsing files.";
   let files_AST = List.rev_map Cilfacade.getAST cpp_file_names in
-
-  (* remove the files *)
-  if not (get_bool "keepcpp") then ignore (Goblintutil.rm_rf dirName);
+  remove_temp_dir ();
 
   let cilout =
     if get_string "dbg.cilout" = "" then Legacy.stderr else Legacy.open_out (get_string "dbg.cilout")
@@ -255,9 +263,6 @@ let merge_preprocessed (cpp_file_names, dirName) =
 (** Perform the analysis over the merged AST.  *)
 let do_analyze merged_AST =
   let module L = Printable.Liszt (Basetype.CilFundec) in
-  (* we let the "--eclipse" flag override result style: *)
-  if get_bool "exp.eclipse" then set_string "result_style" "compact";
-
   if get_bool "justcil" then
     (* if we only want to print the output created by CIL: *)
     Cilfacade.print merged_AST
@@ -321,7 +326,7 @@ let do_html_output () =
       eprintf "Warning: jar file %s not found.\n" jar
   end
 
-let handle_extraspecials () = 
+let handle_extraspecials () =
   let f xs = function
     | String x -> x::xs
     | _ -> xs
@@ -339,10 +344,9 @@ let main =
         Cilfacade.init ();
         parse_arguments ();
         handle_extraspecials ();
+        create_temp_dir ();
         handle_flags ();
-        if String.length (get_string "questions.file") > 0 then question_load_db (get_string "questions.file");
         preprocess_files () |> merge_preprocessed |> do_analyze;
-        if String.length (get_string "questions.file") > 0 then question_save_db (get_string "questions.file");
         Report.do_stats !cFileNames;
         do_html_output ();
         if !verified = Some false then exit 3 (* verifier failed! *)

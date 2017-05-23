@@ -18,34 +18,22 @@ module Functions = struct
   ]
   let arinc_special = with_timeout @ wout_timeout
   let special = arinc_special @ others
-  (* possible return code values *)
-  type return_code = (* taken from ARINC_653_part1.pdf page 46 *)
-    | NO_ERROR       (* request valid and operation performed *)
-    | NO_ACTION      (* system’s operational status unaffected by request *)
-    | NOT_AVAILABLE  (* the request cannot be performed immediately *)
-    | INVALID_PARAM  (* parameter specified in request invalid *)
-    | INVALID_CONFIG (* parameter specified in request incompatible with current configuration (e.g., as specified by system integrator) *)
-    | INVALID_MODE   (* request incompatible with current mode of operation *)
-    | TIMED_OUT      (* time-out associated with request has expired *)
-  let int_from_return_code = function
-    | NO_ERROR       -> 0
-    | NO_ACTION      -> 1
-    | NOT_AVAILABLE  -> 2
-    | INVALID_PARAM  -> 3
-    | INVALID_CONFIG -> 4
-    | INVALID_MODE   -> 5
-    | TIMED_OUT      -> 6
-  let with_success = [NO_ERROR; NO_ACTION]
-  let wout_success = [NO_ERROR; NO_ACTION; NOT_AVAILABLE; INVALID_PARAM; INVALID_CONFIG; INVALID_MODE; TIMED_OUT]
-  let wout_success_wout_timeout = [NO_ERROR; NO_ACTION; NOT_AVAILABLE; INVALID_PARAM; INVALID_CONFIG; INVALID_MODE]
-  let vd xs = `Int (ValueDomain.ID.(List.map (of_int % Int64.of_int % int_from_return_code) xs |> List.fold_left join (bot ())))
+  open ArincUtil
+  (* possible return code classes *)
+  let ret_success = [NO_ERROR; NO_ACTION]
+  let ret_error   = [NOT_AVAILABLE; INVALID_PARAM; INVALID_CONFIG; INVALID_MODE; TIMED_OUT]
+  let ret_any     = ret_success @ ret_error
+  let ret_no_timeout = List.remove ret_any TIMED_OUT
+  (* abstract value for return codes *)
+  let vd ret = `Int (ValueDomain.ID.(List.map (of_int % Int64.of_int % return_code_to_enum) ret |> List.fold_left join (bot ()))) (* ana.int.enums should be enabled *)
   let effects fname args =
     if not (List.mem fname arinc_special) || List.is_empty args then None
     else
       match List.last args with
       | AddrOf lv ->
         Some (fun set ->
-            let v = vd (if GobConfig.get_bool "ana.arinc.assume_success" then with_success else if List.mem fname with_timeout then wout_success else wout_success_wout_timeout) in
+            let ret = if GobConfig.get_bool "ana.arinc.assume_success" then ret_success else if List.mem fname with_timeout then ret_any else ret_no_timeout in
+            let v = vd ret in
             debug_doc @@ Pretty.dprintf "effect of %s: set %a to %a" fname d_lval lv ValueDomain.Compound.pretty v;
             set lv v
           )
@@ -71,7 +59,7 @@ struct
   let get_id (resource,name as k:resource*string) : id =
     try Hashtbl.find resources k
     with Not_found ->
-      let vname = ArincUtil.str_resource_type resource^":"^name in
+      let vname = ArincUtil.show_resource resource^":"^name in
       let v = makeGlobalVar vname voidPtrType in
       Hashtbl.replace resources k v;
       v
@@ -101,7 +89,6 @@ struct
   module G = Tasks
   module C = D
 
-  let sprint f x = Pretty.sprint 80 (f () x)
   let sprint_map f xs = String.concat ", " @@ List.map (sprint f) xs
 
   let context d = { d with pred = Pred.bot (); ctx = Ctx.bot () }
@@ -411,13 +398,14 @@ struct
       | "LAP_Se_SetPartitionMode", [mode; r] -> begin
           match ctx.ask (Queries.EvalInt mode) with
           | `Int i ->
-            if M.tracing then M.tracel "arinc" "setting partition mode to %Ld (%s)\n" i (string_of_partition_mode i);
+            let pm = partition_mode_of_enum @@ Int64.to_int i in
+            if M.tracing then M.tracel "arinc" "setting partition mode to %Ld (%s)\n" i (show_partition_mode_opt pm);
             if mode_is_multi (Pmo.of_int i) then (
               let tasks = ctx.global tasks_var in
               ignore @@ printf "arinc: SetPartitionMode NORMAL: spawning %i processes!\n" (Tasks.cardinal tasks);
               Tasks.iter (fun (fs,f_d) -> Queries.LS.iter (fun f -> ctx.spawn (fst f) ({ f_d with pre = d.pre })) fs) tasks;
             );
-            add_action (SetPartitionMode i)
+            add_action (SetPartitionMode pm)
             |> D.pmo (const @@ Pmo.of_int i)
           | `Bot -> failwith "DEAD"
           | _ -> D.top ()

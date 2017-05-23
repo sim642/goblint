@@ -27,14 +27,6 @@ let warn_higw = ref stdout
 let warn_lowr = ref stdout
 let warn_loww = ref stdout
 
-(*let warn_race = if get_bool "ana.osek.warnfiles" then ref (open_out "goblint_warnings_race.txt") else warn_out
-  let warn_safe = if get_bool "ana.osek.warnfiles" then ref (open_out "goblint_warnings_safe.txt") else warn_out
-  let warn_higr = if get_bool "ana.osek.warnfiles" then ref (open_out "goblint_warnings_highreadrace.txt") else warn_out
-  let warn_higw = if get_bool "ana.osek.warnfiles" then ref (open_out "goblint_warnings_highwriterace.txt") else warn_out
-  let warn_lowr = if get_bool "ana.osek.warnfiles" then ref (open_out "goblint_warnings_lowreadrace.txt") else warn_out
-  let warn_loww = if get_bool "ana.osek.warnfiles" then ref (open_out "goblint_warnings_lowwriterace.txt") else warn_out*)
-
-
 let init_warn_files () =
   warn_race := (open_out "goblint_warnings_race.txt");
   warn_safe := (open_out "goblint_warnings_safe.txt");
@@ -47,13 +39,11 @@ let get_out name alternative = match get_string "dbg.dump" with
   | "" -> alternative
   | path -> open_out (Filename.concat path (name ^ ".out"))
 
-let xml_warn : (location, (string*string) list) Hashtbl.t = Hashtbl.create 10
-
 let colorize ?on:(on=get_bool "colors") msg =
   let colors = [("gray", "30"); ("red", "31"); ("green", "32"); ("yellow", "33"); ("blue", "34");
                 ("violet", "35"); ("turquoise", "36"); ("white", "37"); ("reset", "0;00")] in
   let replace (color,code) =
-    let modes = [(fun x -> x), "0" (* normal *); String.uppercase, "1" (* bold *)] in
+    let modes = [(fun x -> x), "0" (* normal *); String.uppercase_ascii, "1" (* bold *)] in
     List.fold_right (fun (f,m) -> Str.global_replace (Str.regexp ("{"^f color^"}")) (if on then "\027["^m^";"^code^"m" else "")) modes
   in
   let msg = List.fold_right replace colors msg in
@@ -66,8 +56,6 @@ let print_msg msg loc =
   if (get_string "result") = "fast_xml" then warning_table := (`text (msg,loc))::!warning_table;
   if get_bool "gccwarn" then
     Printf.printf "%s:%d:0: warning: %s\n" loc.file loc.line msg
-  else if get_bool "exp.eclipse" then
-    Printf.printf "WARNING /-/ %s /-/ %d /-/ %s\n%!" loc.file loc.line msg
   else
     let color = if get_bool "colors" then "{violet}" else "" in
     let s = Printf.sprintf "%s %s(%s:%d)" msgc color loc.file loc.line in
@@ -78,8 +66,6 @@ let print_err msg loc =
   if (get_string "result") = "fast_xml" then warning_table := (`text (msg,loc))::!warning_table;
   if get_bool "gccwarn" then
     Printf.printf "%s:%d:0: error: %s\n" loc.file loc.line msg
-  else if get_bool "exp.eclipse" then
-    Printf.printf "WARNING /-/ %s /-/ %d /-/ %s\n%!" loc.file loc.line msg
   else
     Printf.fprintf !warn_out "%s (%s:%d)\n%!" msg loc.file loc.line
 
@@ -88,30 +74,24 @@ let print_group group_name errors =
   (* Add warnings to global warning list *)
   if (get_string "result") = "html" then List.iter (fun (msg,loc) -> htmlGlobalWarningList := (loc.file,loc.line,(group_name^" : "^msg))::!htmlGlobalWarningList ) errors;
   if (get_string "result") = "fast_xml" then warning_table := (`group (group_name,errors))::!warning_table;
-  if get_bool "exp.eclipse" then
-    List.iter (fun (msg,loc) -> print_msg (group_name ^ ", " ^ msg) loc) errors
-  else
-    let f (msg,loc): doc = Pretty.dprintf "%s (%s:%d)" msg loc.file loc.line in
-    if (get_bool "ana.osek.warnfiles") then begin
-      match (String.sub group_name 0 6) with
-      | "Safely" -> ignore (Pretty.fprintf !warn_safe "%s:\n  @[%a@]\n" group_name (docList ~sep:line f) errors)
-      | "Datara" -> ignore (Pretty.fprintf !warn_race "%s:\n  @[%a@]\n" group_name (docList ~sep:line f) errors)
-      | "High r" -> ignore (Pretty.fprintf !warn_higr "%s:\n  @[%a@]\n" group_name (docList ~sep:line f) errors)
-      | "High w" -> ignore (Pretty.fprintf !warn_higw "%s:\n  @[%a@]\n" group_name (docList ~sep:line f) errors)
-      | "Low re" -> ignore (Pretty.fprintf !warn_lowr "%s:\n  @[%a@]\n" group_name (docList ~sep:line f) errors)
-      | "Low wr" -> ignore (Pretty.fprintf !warn_loww "%s:\n  @[%a@]\n" group_name (docList ~sep:line f) errors)
-      | _ -> ()
-    end;
-    ignore (Pretty.fprintf !warn_out "%s:\n  @[%a@]\n" group_name (docList ~sep:line f) errors)
+  let f (msg,loc): doc = Pretty.dprintf "%s (%s:%d)" msg loc.file loc.line in
+  if (get_bool "ana.osek.warnfiles") then begin
+    match (String.sub group_name 0 6) with
+    | "Safely" -> ignore (Pretty.fprintf !warn_safe "%s:\n  @[%a@]\n" group_name (docList ~sep:line f) errors)
+    | "Datara" -> ignore (Pretty.fprintf !warn_race "%s:\n  @[%a@]\n" group_name (docList ~sep:line f) errors)
+    | "High r" -> ignore (Pretty.fprintf !warn_higr "%s:\n  @[%a@]\n" group_name (docList ~sep:line f) errors)
+    | "High w" -> ignore (Pretty.fprintf !warn_higw "%s:\n  @[%a@]\n" group_name (docList ~sep:line f) errors)
+    | "Low re" -> ignore (Pretty.fprintf !warn_lowr "%s:\n  @[%a@]\n" group_name (docList ~sep:line f) errors)
+    | "Low wr" -> ignore (Pretty.fprintf !warn_loww "%s:\n  @[%a@]\n" group_name (docList ~sep:line f) errors)
+    | _ -> ()
+  end;
+  ignore (Pretty.fprintf !warn_out "%s:\n  @[%a@]\n" group_name (docList ~sep:line f) errors)
 
 let warn_urgent msg =
   if not !GU.may_narrow then begin
     soundness := false;
     print_msg msg (!Tracing.current_loc)
   end
-
-let write msg =
-  print_msg msg !Tracing.current_loc
 
 let warn_all msg =
   if not !GU.may_narrow then begin
@@ -144,11 +124,16 @@ let report_error msg =
     print_err msg loc
   end
 
+let with_context msg = function
+  | Some ctx when GobConfig.get_bool "dbg.warn_with_context" -> msg ^ " in context " ^ string_of_int (Hashtbl.hash ctx)
+  | _ -> msg
+
 let warn_str_hashtbl = Hashtbl.create 10
 let warn_lin_hashtbl = Hashtbl.create 10
 
-let warn msg =
+let warn ?ctx msg =
   if not !GU.may_narrow then begin
+    let msg = with_context msg ctx in
     if (Hashtbl.mem warn_str_hashtbl msg == false) then
       begin
         warn_all msg;
@@ -156,15 +141,25 @@ let warn msg =
       end
   end
 
-let warn_each msg =
+let warn_each ?ctx msg =
   if not !GU.may_narrow then begin
     let loc = !Tracing.current_loc in
+    let msg = with_context msg ctx in
     if (Hashtbl.mem warn_lin_hashtbl (msg,loc) == false) then
       begin
         warn_all msg;
         Hashtbl.add warn_lin_hashtbl (msg,loc) true
       end
   end
+
+(*
+let warn_each_ctx ctx msg = (* cyclic dependency... *)
+  if not @@ GobConfig.get_bool "dbg.warn_with_context" then warn_each msg else
+  (* let module S = (val Control.get_spec ()) in *)
+  (* warn_each (msg ^ " in context " ^ S.C.short 99999 (Obj.obj ctx.context ())) *)
+  (* warn_each (msg ^ " in context " ^ IO.to_string S.C.printXml (Obj.obj ctx.context ())) *)
+  warn_each (msg ^ " in context " ^ string_of_int (Hashtbl.hash (Obj.obj ctx.context ())))
+*)
 
 let debug msg =
   if (get_bool "dbg.debug") then warn ("{BLUE}"^msg)

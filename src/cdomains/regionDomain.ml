@@ -34,11 +34,11 @@ module VFB =
 struct
   include Printable.Either (VF) (B)
 
-  let printXml f = function 
-  | `Right () ->
-    BatPrintf.fprintf f "<value>\n<data>\n•\n</data>\n</value>\n"
-  | `Left x ->
-    BatPrintf.fprintf f "<value>\n<data>\n%a\n</data>\n</value>\n" VF.printXml x
+  let printXml f = function
+    | `Right () ->
+      BatPrintf.fprintf f "<value>\n<data>\n•\n</data>\n</value>\n"
+    | `Left x ->
+      BatPrintf.fprintf f "<value>\n<data>\n%a\n</data>\n</value>\n" VF.printXml x
 
   let collapse (x:t) (y:t): bool =
     match x,y with

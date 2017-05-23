@@ -380,8 +380,6 @@ struct
             let ctx' = {(obj ctx) with local = obj d} in
             S.assign ctx' lval exp
         in
-        let comp2 f g a b = f (g a) (g b) in
-        let compareBy f = comp2 Pervasives.compare f in
         let get_lval (lval, exp, name, ctx) = lval in
         (* group by assigns on the same lval -> only those must be joined *)
         List.group (compareBy get_lval) assigns
@@ -408,6 +406,8 @@ struct
     let f post_all (n,(module S:Spec),d) =
       let rec ctx' : (S.D.t, S.G.t) ctx =
         { local  = obj d
+        ; node   = ctx.node
+        ; context = ctx.context
         ; ask    = query ctx
         ; presub = filter_presubs n ctx.local
         ; postsub= filter_presubs n post_all
@@ -432,6 +432,8 @@ struct
     let f a (n,(module S:Spec),d) =
       let ctx' : (S.D.t, S.G.t) ctx =
         { local  = obj d
+        ; node   = ctx.node
+        ; context = ctx.context
         ; ask    = query ctx
         ; presub = filter_presubs n ctx.local
         ; postsub= []
@@ -442,25 +444,13 @@ struct
         ; assign = (fun ?name _ -> failwith "Cannot \"assign\" in query context.")
         }
       in
-      let answer = ref (Queries.Result.meet a @@ S.query ctx' q) in
-      let q = ref q in
-      let break = ref false in
-      while not(!break) && (!answer = `Top) do
-        let next_q = (Queries.Query.get_next_query_in_hierarchy !q) in
-        match next_q with
-        | Some x -> (
-            q := x;
-            answer := (Queries.Result.meet a @@ S.query ctx' !q);
-          )
-        | _ -> break := true;
-       done;
-      !answer
+      Queries.Result.meet a @@ S.query ctx' q
     in
     match q with
     | Queries.PrintFullState ->
       ignore (Pretty.printf "Current State:\n%a\n\n" D.pretty ctx.local);
       `Bot
-    | Queries.Access(e,b,reach,conf) -> 
+    | Queries.Access(e,b,reach,conf) ->
       if reach || b then do_access ctx b reach conf e;
       Access.distribute_access_exp (do_access ctx) false false conf e;
       `Bot
@@ -469,13 +459,15 @@ struct
       do_sideg ctx !sides;
       x
 
-  and part_access ctx (e:exp) (vo:varinfo option) (w: bool) = 
+  and part_access ctx (e:exp) (vo:varinfo option) (w: bool) =
     let open Access in
     let start = (LSSSet.singleton (LSSet.empty ()), LSSet.empty ()) in
     let sides  = ref [] in
-    let f (po,lo) (n, (module S: Spec), d) : part = 
+    let f (po,lo) (n, (module S: Spec), d) : part =
       let rec ctx' : (S.D.t, S.G.t) ctx =
         { local  = obj d
+        ; node   = ctx.node
+        ; context = ctx.context
         ; ask    = query ctx
         ; presub = filter_presubs n ctx.local
         ; postsub= []
@@ -497,61 +489,69 @@ struct
     in
     List.fold_left f start (spec_list ctx.local)
 
-  and do_access (ctx: (D.t, G.t) ctx) (w:bool) (reach:bool) (conf:int) (e:exp) = 
+  and do_access (ctx: (D.t, G.t) ctx) (w:bool) (reach:bool) (conf:int) (e:exp) =
     let open Queries in
     let open Access in
-    let add_access conf vo oo = 
+    let add_access conf vo oo =
       let (po,pd) = part_access ctx e vo w in
       Access.add e w conf vo oo (po,pd)
     in
     let add_access_struct conf ci =
       let (po,pd) = part_access ctx e None w in
-      Access.add_struct e w conf (`Struct (ci,NoOffset)) None (po,pd)
+      Access.add_struct e w conf (`Struct (ci,`NoOffset)) None (po,pd)
     in
-    let has_escaped g = 
+    let has_escaped g =
       match ctx.ask (Queries.MayEscape g) with
-        | `Bool false -> false
-        | _ -> true
+      | `Bool false -> false
+      | _ -> true
     in
-    let reach_or_mpt = 
+    let reach_or_mpt =
       if reach then
         ReachableFrom (mkAddrOf (Mem e,NoOffset))
       else
         MayPointTo (mkAddrOf (Mem e,NoOffset))
     in
-    match ctx.ask reach_or_mpt with
-    | `Bot -> ()
-    | `LvalSet ls when not (LS.is_top ls) ->
-      let includes_uk = ref false in
-      begin match ctx.ask (ReachableUkTypes (mkAddrOf (Mem e,NoOffset))) with
-      | `Bot -> ()
-      | `TypeSet ts when Queries.TS.is_top ts -> 
-        includes_uk := true
-      | `TypeSet ts ->
-        if Queries.TS.is_empty ts = false then
-          includes_uk := true;
-        let f = function
-        | TComp (ci, _) ->
-          add_access_struct (conf - 50) ci
-        | _ -> ()
-        in
-        Queries.TS.iter f ts
-      | _ -> 
-        includes_uk := true
-        (* add_access None None *)
-      end;
+    (* The following function adds accesses to the lval-set ls
+       -- this is the common case if we have a sound points-to set. *)
+    let on_lvals ls includes_uk =
       let ls = LS.filter (fun (g,_) -> g.vglob || has_escaped g) ls in
       let conf = if reach then conf - 20 else conf in
-      let conf = if !includes_uk then conf - 10 else conf in
-      let f (var, offs) = 
+      let conf = if includes_uk then conf - 10 else conf in
+      let f (var, offs) =
         let coffs = Lval.CilLval.to_ciloffs offs in
-        if var.vid = dummyFunDec.svar.vid then 
+        if var.vid = dummyFunDec.svar.vid then
           add_access conf None (Some coffs)
         else
-          add_access conf (Some var) (Some coffs) 
+          add_access conf (Some var) (Some coffs)
       in
-      (* printf "accessable set of %a = %a\n" d_exp e LS.pretty ls; *)
       LS.iter f ls
+    in
+    match ctx.ask reach_or_mpt with
+    | `Bot -> ()
+    | `LvalSet ls when not (LS.is_top ls) && not (Queries.LS.mem (dummyFunDec.svar,`NoOffset) ls) ->
+      (* the case where the points-to set is non top and does not contain unknown values *)
+      on_lvals ls false
+    | `LvalSet ls when not (LS.is_top ls) ->      
+      (* the case where the points-to set is non top and contains unknown values *)
+      let includes_uk = ref false in
+      (* now we need to access all fields that might be pointed to: is this correct? *)
+      begin match ctx.ask (ReachableUkTypes (mkAddrOf (Mem e,NoOffset))) with
+        | `Bot -> ()
+        | `TypeSet ts when Queries.TS.is_top ts ->
+          includes_uk := true
+        | `TypeSet ts ->
+          if Queries.TS.is_empty ts = false then
+            includes_uk := true;
+          let f = function
+            | TComp (ci, _) ->
+              add_access_struct (conf - 50) ci
+            | _ -> ()
+          in
+          Queries.TS.iter f ts
+        | _ ->
+          includes_uk := true
+      end;
+      on_lvals ls !includes_uk
     | _ -> 
       add_access (conf - 60) None None
 
@@ -562,6 +562,8 @@ struct
     let f post_all (n,(module S:Spec),d) =
       let ctx' : (S.D.t, S.G.t) ctx =
         { local  = obj d
+        ; node   = ctx.node
+        ; context = ctx.context
         ; ask    = query ctx
         ; presub = filter_presubs n ctx.local
         ; postsub= filter_presubs n post_all
@@ -588,6 +590,8 @@ struct
     let f post_all (n,(module S:Spec),d) =
       let rec ctx' : (S.D.t, S.G.t) ctx =
         { local  = obj d
+        ; node   = ctx.node
+        ; context = ctx.context
         ; ask    = query ctx
         ; presub = filter_presubs n ctx.local
         ; postsub= filter_presubs n post_all
@@ -615,6 +619,8 @@ struct
     let f post_all (n,(module S:Spec),d) =
       let rec ctx' : (S.D.t, S.G.t) ctx =
         { local  = obj d
+        ; node   = ctx.node
+        ; context = ctx.context
         ; ask    = query ctx
         ; presub = filter_presubs n ctx.local
         ; postsub= filter_presubs n post_all
@@ -642,6 +648,8 @@ struct
     let f post_all (n,(module S:Spec),d) =
       let rec ctx' : (S.D.t, S.G.t) ctx =
         { local  = obj d
+        ; node   = ctx.node
+        ; context = ctx.context
         ; ask    = query ctx
         ; presub = filter_presubs n ctx.local
         ; postsub= filter_presubs n post_all
@@ -669,6 +677,8 @@ struct
     let f post_all (n,(module S:Spec),d) =
       let rec ctx' : (S.D.t, S.G.t) ctx =
         { local  = obj d
+        ; node   = ctx.node
+        ; context = ctx.context
         ; ask    = query ctx
         ; presub = filter_presubs n ctx.local
         ; postsub= filter_presubs n post_all
@@ -695,6 +705,8 @@ struct
     let f (n,(module S:Spec),d) (dl,cs) =
       let ctx' : (S.D.t, S.G.t) ctx =
         { local  = obj d
+        ; node   = ctx.node
+        ; context = ctx.context
         ; ask    = query ctx
         ; presub = filter_presubs n ctx.local
         ; postsub= []
@@ -720,6 +732,8 @@ struct
     let f (n,(module S:Spec),d) =
       let ctx' : (S.D.t, S.G.t) ctx =
         { local  = obj d
+        ; node   = ctx.node
+        ; context = ctx.context
         ; ask    = query ctx
         ; presub = filter_presubs n ctx.local
         ; postsub= []
@@ -744,6 +758,8 @@ struct
     let f post_all (n,(module S:Spec),d) =
       let rec ctx' : (S.D.t, S.G.t) ctx =
         { local  = obj d
+        ; node   = ctx.node
+        ; context = ctx.context
         ; ask    = query ctx
         ; presub = filter_presubs n ctx.local
         ; postsub= filter_presubs n post_all

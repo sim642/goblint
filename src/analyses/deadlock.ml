@@ -97,13 +97,13 @@ struct
     | `LvalSet a when not (Queries.LS.is_top a) ->
       Queries.LS.fold gather_addr (Queries.LS.remove (dummyFunDec.svar, `NoOffset) a) []
     | `Bot -> []
-    | b -> Messages.warn ("Could not evaluate '"^sprint 30 (d_exp () exp)^"' to an points-to set, instead got '"^Queries.Result.short 60 b^"'."); []
+    | b -> Messages.warn ("Could not evaluate '"^sprint d_exp exp^"' to an points-to set, instead got '"^Queries.Result.short 60 b^"'."); []
 
   (* Called when calling a special/unknown function *)
   let special ctx (lval: lval option) (f:varinfo) (arglist:exp list) : D.t =
     if D.is_top ctx.local then ctx.local else
       match LibraryFunctions.classify f.vname arglist with
-      | `Lock (_, _) ->
+      | `Lock (_, _, _) ->
         begin match eval_exp_addr ctx.ask (List.hd arglist) with
           | [lockAddr] ->
             addLockingInfo {addr = lockAddr; loc = !Tracing.current_loc } ctx.local;

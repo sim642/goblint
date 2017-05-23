@@ -27,7 +27,7 @@ sig
     * returns [true], the above [to_bool] should return a real value. *)
   val to_excl_list: t -> int64 list option
   (* Gives a list representation of the excluded values if possible. *)
-  val of_excl_list: int64 list -> t
+  val of_excl_list: Cil.ikind -> int64 list -> t
   (* Creates a exclusion set from a given list of integers. *)
   val is_excl_list: t -> bool
   (* Checks if the element is an exclusion set. *)
@@ -92,12 +92,16 @@ sig
   (** Logical or: [x || y] *)
 
   (** {b Cast} *)
-  val cast_to_width: int -> t -> t
+  val cast_to: Cil.ikind -> t -> t
   (** Cast interval/integer to type of the given width. *)
 end
 (** The signature of integral value domains. They need to support all integer
   * operations that are allowed in C *)
 
+module Size : sig
+  val top_typ : Cil.typ
+  (** The biggest type we support for integers. *)
+end
 
 exception Unknown
 (** An exception that can be raised when the result of a computation is unknown.
@@ -125,9 +129,10 @@ module Flattened : S with type t = [`Top | `Lifted of int64 | `Bot]
 module Lifted : S with type t = [`Top | `Lifted of int64 | `Bot]
 (** Artificially bounded integers in their natural ordering. *)
 
+module Interval32 : S
 module Trier
   : S with type t = [
-      | `Excluded of SetDomain.Make(Integers).t
+      | `Excluded of SetDomain.Make(Integers).t * Interval32.t
       | `Definite of Integers.t
       | `Bot
     ]
@@ -149,16 +154,15 @@ module Lift (Base: S): S
 module Reverse (Base: S): S
 (** Reverses bot, top, leq, join, meet *)
 
-module Interval : S
+(* module Interval : S *)
 (** Interval domain with int64-s --- use with caution! *)
 
-(*module IncExcInterval : S with type t = [ | `Excluded of Interval.t| `Included of Interval.t ] *)
+(* module IncExcInterval : S with type t = [ | `Excluded of Interval.t| `Included of Interval.t ] *)
 (** Inclusive and exclusive intervals. Warning: NOT A LATTICE *)
-module Interval32 : S
 module Enums : S
 
-module ManyInts : S
-module IntDomList : S
+(* module ManyInts : S *)
+(* module IntDomList : S *)
 module IntDomTuple : S
 
 (** {b Boolean domains} *)
@@ -177,5 +181,7 @@ module Booleans: S with type t = bool
 (** Boolean abstract domain, where true is output "True" and false is output
   * "False" *)
 
+(*
 module None: S with type t = unit
 (** Domain with nothing in it. *)
+*)
