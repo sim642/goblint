@@ -1,8 +1,20 @@
 open QCheck
 
+module GenMonad =
+struct
+  include Gen
+
+  let bind = (>>=) (* for ppx_monadic *)
+end
+
 let sequence_gen (gens: 'a Gen.t list): 'a list Gen.t =
-  let open Gen in
-  let f gen acc = acc >>= (fun xs -> gen >|= (fun x -> x :: xs)) in
+  let open GenMonad in
+  let f gen acc =
+    do_;
+    x <-- gen;
+    xs <-- acc;
+    return @@ x :: xs
+  in
   List.fold_right f gens (return [])
 
 let sequence (arbs: 'a arbitrary list): 'a list arbitrary =
