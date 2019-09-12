@@ -587,6 +587,7 @@ struct
       | ASM _          -> fun _ _ _ _ d -> ignore (M.warn "ASM statement ignored."); d
       | Skip           -> fun _ _ _ _ d -> d
       | SelfLoop       -> tf_loop var edge
+      | MultiEdge _    -> failwith "MultiEdge should not exist in constraints"
     end getl sidel getg sideg d
 
   let tf var getl sidel getg sideg (_,edge) d (f,t) =

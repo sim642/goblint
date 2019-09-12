@@ -533,7 +533,7 @@ struct
       let module Arg =
       struct
         open MyARG
-        module ArgIntra = UnCilTernaryIntra (UnCilLogicIntra (CfgIntra (Cfg)))
+        module ArgIntra = UnCilLineIntra (UnCilTernaryIntra (UnCilLogicIntra (CfgIntra (Cfg))))
         include Intra (Arg.Node) (ArgIntra) (Arg)
       end
       in

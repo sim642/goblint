@@ -259,6 +259,49 @@ struct
     | None -> Arg.next n
 end
 
+module UnCilLineIntra (Arg: SIntraOpt): SIntraOpt =
+struct
+  open Cil
+
+  let rec is_assign = function
+    | Assign _ -> true
+    | MultiEdge es -> List.for_all is_assign es
+    | _ -> false
+
+  let multiedge e1 e2 = match e1, e2 with
+    | MultiEdge es1, MultiEdge es2 -> MultiEdge (es1 @ es2)
+    | MultiEdge es1, _ -> MultiEdge (es1 @ [e2])
+    | _, MultiEdge es2 -> MultiEdge (e1 :: es2)
+    | _, _ -> MultiEdge [e1; e2]
+
+  let ternary e_cond e_true e_false =
+    if e_true = Cil.one && e_false = Cil.zero then
+      (* avoid unnecessary ternary *)
+      e_cond
+    else
+      (* CIL has no exp for ternary at all..., this string constant is just decorative *)
+      Const (CStr (Pretty.sprint 1000 (Pretty.dprintf "%a ? %a : %a" dn_exp e_cond dn_exp e_true dn_exp e_false)))
+
+  let rec next_opt' n = match Arg.next n with
+    | [(a1, assign_next_n)] when GobConfig.get_bool "exp.uncilwitness" && is_assign a1 ->
+      if MyCFG.getLoc n = MyCFG.getLoc assign_next_n then
+        match next assign_next_n with
+        | [(a2, assign_assign_next_n)] when is_assign a2 ->
+          Some [
+            (multiedge a1 a2, assign_assign_next_n)
+          ]
+        | _ -> None
+      else
+        None
+    | _ -> None
+  and next_opt n = match next_opt' n with
+    | Some _ as next_opt -> next_opt
+    | None -> Arg.next_opt n
+  and next n = match next_opt' n with
+    | Some next -> next
+    | None -> Arg.next n
+end
+
 module type MoveNode =
 sig
   include Node

@@ -88,10 +88,11 @@ type edge =
   (** This is here for historical reasons. I never use Skip edges! *)
   | SelfLoop
   (** This for interrupt edges.! *)
+  | MultiEdge of edge list
 [@@deriving to_yojson]
 
 
-let pretty_edge () = function
+let rec pretty_edge () = function
   | Assign (lv,rv) -> dprintf "Assign '%a = %a' " d_lval lv d_exp rv
   | Proc (None  ,f,ars) -> dprintf "Proc '%a(%a)'" d_exp f (d_list ", " d_exp) ars
   | Proc (Some r,f,ars) -> dprintf "Proc '%a = %a(%a)'" d_lval r d_exp f (d_list ", " d_exp) ars
@@ -102,6 +103,7 @@ let pretty_edge () = function
   | ASM _ -> text "ASM ..."
   | Skip -> text "Skip"
   | SelfLoop -> text "SelfLoop"
+  | MultiEdge es -> dprintf "MultiEdge (%a)" (d_list " → " pretty_edge) es
 
 let rec pretty_edges () = function
   | [] -> Pretty.dprintf ""
@@ -117,6 +119,7 @@ let pretty_edge_kind () = function
   | ASM _ -> text "ASM"
   | Skip -> text "Skip"
   | SelfLoop -> text "SelfLoop"
+  | MultiEdge _ -> text "MultiEdge"
 
 type cfg = node -> ((location * edge) list * node) list
 
@@ -299,7 +302,7 @@ let print cfg  =
   let dn_lval () l =
     text (Goblintutil.escape (sprint 800 (dn_lval () l)))
   in
-  let p_edge () = function
+  let rec p_edge () = function
     | Test (exp, b) -> if b then Pretty.dprintf "Pos(%a)" dn_exp exp else Pretty.dprintf "Neg(%a)" dn_exp exp
     | Assign (lv,rv) -> Pretty.dprintf "%a = %a" dn_lval lv dn_exp rv
     | Proc (Some ret,f,args) -> Pretty.dprintf "%a = %a(%a)" dn_lval ret dn_exp f (d_list ", " dn_exp) args
@@ -310,6 +313,7 @@ let print cfg  =
     | ASM (_,_,_) -> Pretty.text "ASM ..."
     | Skip -> Pretty.text "skip"
     | SelfLoop -> Pretty.text "SelfLoop"
+    | MultiEdge es -> Pretty.dprintf "MultiEdge (%a)" (d_list " → " pretty_edge) es
   in
   (* escape string in label, otherwise dot might fail *)
   let p_edge_escaped () x = Pretty.text (String.escaped (Pretty.sprint ~width:0 (Pretty.dprintf "%a" p_edge x))) in
@@ -456,7 +460,7 @@ let printFun (module Cfg : CfgBidir) live fd out =
   let dn_lval () l =
     text (Goblintutil.escape (sprint 800 (dn_lval () l)))
   in
-  let p_edge () = function
+  let rec p_edge () = function
     | Test (exp, b) -> if b then Pretty.dprintf "Pos(%a)" dn_exp exp else Pretty.dprintf "Neg(%a)" dn_exp exp
     | Assign (lv,rv) -> Pretty.dprintf "%a = %a" dn_lval lv dn_exp rv
     | Proc (Some ret,f,args) -> Pretty.dprintf "%a = %a(%a)" dn_lval ret dn_exp f (d_list ", " dn_exp) args
@@ -467,6 +471,7 @@ let printFun (module Cfg : CfgBidir) live fd out =
     | ASM (_,_,_) -> Pretty.text "ASM ..."
     | Skip -> Pretty.text "skip"
     | SelfLoop -> Pretty.text "SelfLoop"
+    | MultiEdge es -> Pretty.dprintf "MultiEdge (%a)" (d_list " → " pretty_edge) es
   in
   let rec p_edges () = function
     | [] -> Pretty.dprintf ""
