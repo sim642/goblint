@@ -930,6 +930,13 @@ struct
     in
     D.fold k ctx.local a
 
+  let fold'' ctx f g h a =
+    let k (_,x) a =
+      try h a @@ (x, g @@ f @@ conv ctx x)
+      with Deadcode -> a
+    in
+    D.fold k ctx.local a
+
   let sync ctx =
     fold' ctx Spec.sync identity (fun (a,b) (a',b') -> D.add (a', a') a, b'@b) (D.empty (), [])
 
@@ -937,8 +944,8 @@ struct
     fold' ctx Spec.query identity (fun x f -> Queries.Result.meet x (f q)) `Top
 
   let enter ctx l f a =
-    let g xs ys = (List.map (fun (x,y) -> D.singleton (x,x), D.singleton (y,y)) ys) @ xs in
-    fold' ctx Spec.enter (fun h -> h l f a) g []
+    let g xs (p,ys) = (List.map (fun (x,y) -> D.singleton (p,x), D.singleton (p,y)) ys) @ xs in
+    fold'' ctx Spec.enter (fun h -> h l f a) g []
 
   let combine ctx l fe f a d =
     assert (D.cardinal ctx.local = 1);
