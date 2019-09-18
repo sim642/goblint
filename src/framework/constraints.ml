@@ -804,15 +804,22 @@ module GlobSolverFromIneqSolver (Sol:GenericIneqBoxSolver)
 module N = struct let topname = "Top" end
 (** Add path sensitivity to a analysis *)
 module PathSensitive2 (Spec:Spec)
-  : Spec
-    with type D.t = SetDomain.Hoare(Spec.D)(N).t
-     and module G = Spec.G
-     and module C = Spec.C
+  (* : Spec
+       with type D.t = SetDomain.Hoare(Lattice.Prod (Spec.D) (Spec.D))(N).t
+        and module G = Spec.G
+        and module C = Spec.C *)
 =
 struct
   module D =
   struct
-    include SetDomain.Hoare (Spec.D) (N)
+    module DD =
+    struct
+      include Lattice.Prod (Spec.D) (Spec.D)
+
+      let invariant c (_, d) = Spec.D.invariant c d
+    end
+
+    include SetDomain.Hoare (DD) (N)
     let name () = "PathSensitive (" ^ name () ^ ")"
 
     let pretty_diff () ((s1:t),(s2:t)): Pretty.doc =
@@ -824,7 +831,7 @@ struct
           (* dprintf "%s has a problem with %a not leq %a because %a" (name ())
              Spec.D.pretty evil Spec.D.pretty other
              Spec.D.pretty_diff (evil,other) *)
-          Spec.D.pretty_diff () (evil,other)
+          DD.pretty_diff () (evil,other)
         with _ -> failwith @@
           "PathSensitive2: choose failed b/c of empty set!"
           ^", s1: "^string_of_int (cardinal s1)
@@ -833,7 +840,7 @@ struct
 
     let printXml f x =
       let print_one x =
-        BatPrintf.fprintf f "\n<path>%a</path>" Spec.D.printXml x
+        BatPrintf.fprintf f "\n<path>%a</path>" DD.printXml x
       in
       iter print_one x
 
@@ -841,10 +848,10 @@ struct
     let join_reduce a =
       let rec loop js = function
         | [] -> js
-        | x::xs -> let (j,r) = List.fold_left (fun (j,r) x ->
-            if Spec.should_join x j then Spec.D.join x j, r else j, x::r
-          ) (x,[]) xs in
-          loop (j::js) r
+        | (xp,x)::xs -> let (j,jps,r) = List.fold_left (fun (j,jps,r) (xp,x) ->
+            if Spec.should_join x j then Spec.D.join x j, xp::jps, r else j, jps, (xp,x)::r
+          ) (x,[xp],[]) xs in
+          loop (List.map (fun jp -> jp, j) jps @ js) r
       in
       apply_list (loop []) a
 
@@ -856,7 +863,7 @@ struct
     let narrow = binop narrow
 
     let invariant c s = fold (fun x a ->
-        Invariant.(a || Spec.D.invariant c x) (* TODO: || correct? *)
+        Invariant.(a || DD.invariant c x) (* TODO: || correct? *)
       ) s Invariant.none
   end
 
@@ -870,31 +877,31 @@ struct
 
   let should_join x y = true
 
-  let otherstate v = D.singleton (Spec.otherstate v)
-  let exitstate  v = D.singleton (Spec.exitstate  v)
-  let startstate v = D.singleton (Spec.startstate v)
-  let morphstate v d = D.map (Spec.morphstate v) d
+  let otherstate v = D.singleton (Spec.D.bot (), Spec.otherstate v)
+  let exitstate  v = D.singleton (Spec.D.bot (), Spec.exitstate  v)
+  let startstate v = D.singleton (Spec.D.bot (), Spec.startstate v)
+  let morphstate v d = D.map (fun (xp,x) -> xp, Spec.morphstate v x) d
 
   let call_descr = Spec.call_descr
 
-  let val_of = D.singleton % Spec.val_of
+  let val_of = D.singleton % (fun x -> Spec.D.bot (), x) % Spec.val_of
   let context l =
     if D.cardinal l <> 1 then
       failwith "PathSensitive2.context must be called with a singleton set."
     else
-      Spec.context @@ D.choose l
+      Spec.context @@ snd @@ D.choose l
 
   let conv ctx x =
     let rec ctx' = { ctx with ask   = query
                             ; local = x
-                            ; spawn = (fun v -> ctx.spawn v % D.singleton )
-                            ; split = (ctx.split % D.singleton) }
+                            ; spawn = (fun v -> ctx.spawn v % D.singleton % (fun x -> Spec.D.bot (), x) )
+                            ; split = (ctx.split % D.singleton % (fun x -> Spec.D.bot (), x)) }
     and query x = Spec.query ctx' x in
     ctx'
 
   let map ctx f g =
-    let h x xs =
-      try D.add (g (f (conv ctx x))) xs
+    let h (_,x) xs =
+      try D.add (x, (g (f (conv ctx x)))) xs
       with Deadcode -> xs
     in
     let d = D.fold h ctx.local (D.empty ()) in
@@ -908,7 +915,7 @@ struct
   let special ctx l f a = map ctx Spec.special (fun h -> h l f a)
 
   let fold ctx f g h a =
-    let k x a =
+    let k (_,x) a =
       try h a @@ g @@ f @@ conv ctx x
       with Deadcode -> a
     in
@@ -916,27 +923,27 @@ struct
     if D.is_bot d then raise Deadcode else d
 
   let fold' ctx f g h a =
-    let k x a =
+    let k (_,x) a =
       try h a @@ g @@ f @@ conv ctx x
       with Deadcode -> a
     in
     D.fold k ctx.local a
 
   let sync ctx =
-    fold' ctx Spec.sync identity (fun (a,b) (a',b') -> D.add a' a, b'@b) (D.empty (), [])
+    fold' ctx Spec.sync identity (fun (a,b) (a',b') -> D.add (a', a') a, b'@b) (D.empty (), [])
 
   let query ctx q =
     fold' ctx Spec.query identity (fun x f -> Queries.Result.meet x (f q)) `Top
 
   let enter ctx l f a =
-    let g xs ys = (List.map (fun (x,y) -> D.singleton x, D.singleton y) ys) @ xs in
+    let g xs ys = (List.map (fun (x,y) -> D.singleton (x,x), D.singleton (y,y)) ys) @ xs in
     fold' ctx Spec.enter (fun h -> h l f a) g []
 
   let combine ctx l fe f a d =
     assert (D.cardinal ctx.local = 1);
-    let cd = D.choose ctx.local in
-    let k x y =
-      try D.add (Spec.combine (conv ctx cd) l fe f a x) y
+    let (cdp,cd) = D.choose ctx.local in
+    let k (xp,x) y =
+      try D.add (xp, (Spec.combine (conv ctx cd) l fe f a x)) y
       with Deadcode -> y
     in
     let d = D.fold k d (D.bot ()) in
