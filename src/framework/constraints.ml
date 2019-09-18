@@ -839,8 +839,9 @@ struct
       end
 
     let printXml f x =
-      let print_one x =
-        BatPrintf.fprintf f "\n<path>%a</path>" DD.printXml x
+      let print_one (xp,x) =
+        (* BatPrintf.fprintf f "\n<path>%a</path>" DD.printXml x *)
+        BatPrintf.fprintf f "\n<path>%a<analysis name=\"pathwitness\"><value>%a</value></analysis></path>" Spec.D.printXml x Spec.D.printXml xp
       in
       iter print_one x
 
