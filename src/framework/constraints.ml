@@ -866,6 +866,8 @@ struct
     let invariant c s = fold (fun x a ->
         Invariant.(a || DD.invariant c x) (* TODO: || correct? *)
       ) s Invariant.none
+
+    let singleton_lift x = singleton (Spec.D.bot (), x)
   end
 
   module G = Spec.G
@@ -878,14 +880,14 @@ struct
 
   let should_join x y = true
 
-  let otherstate v = D.singleton (Spec.D.bot (), Spec.otherstate v)
-  let exitstate  v = D.singleton (Spec.D.bot (), Spec.exitstate  v)
-  let startstate v = D.singleton (Spec.D.bot (), Spec.startstate v)
+  let otherstate v = D.singleton_lift (Spec.otherstate v)
+  let exitstate  v = D.singleton_lift (Spec.exitstate  v)
+  let startstate v = D.singleton_lift (Spec.startstate v)
   let morphstate v d = D.map (fun (xp,x) -> xp, Spec.morphstate v x) d
 
   let call_descr = Spec.call_descr
 
-  let val_of = D.singleton % (fun x -> Spec.D.bot (), x) % Spec.val_of
+  let val_of = D.singleton_lift % Spec.val_of
   let context l =
     if D.cardinal l <> 1 then
       failwith "PathSensitive2.context must be called with a singleton set."
@@ -895,8 +897,8 @@ struct
   let conv ctx x =
     let rec ctx' = { ctx with ask   = query
                             ; local = x
-                            ; spawn = (fun v -> ctx.spawn v % D.singleton % (fun x -> Spec.D.bot (), x) )
-                            ; split = (ctx.split % D.singleton % (fun x -> Spec.D.bot (), x)) }
+                            ; spawn = (fun v -> ctx.spawn v % D.singleton_lift)
+                            ; split = (ctx.split % D.singleton_lift) }
     and query x = Spec.query ctx' x in
     ctx'
 
