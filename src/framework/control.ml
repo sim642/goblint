@@ -550,9 +550,15 @@ struct
 
       let witness_path = get_string "exp.witness_path" in
       if svcomp_unreach_call then begin
+        let module TrivialArg =
+        struct
+          include Arg
+          let next _ = []
+        end
+        in
         let module TaskResult =
         struct
-          module Arg = Arg
+          module Arg = TrivialArg
           let result = true
           let invariant = find_invariant
           let is_violation _ = false
