@@ -126,3 +126,77 @@ end
   )
   in
   MCP.register_analysis (module Spec) *)
+
+
+module TestObserver : Analyses.Spec =
+struct
+  include Analyses.DefaultSpec
+
+  let name () = "testobserver"
+
+  module ChainParams =
+  struct
+    (* let n = List.length Arg.path *)
+    let n = 2
+    let names x = "state " ^ string_of_int x
+  end
+  module D = Lattice.Flat (Printable.Chain (ChainParams)) (Printable.DefaultNames)
+  module G = Lattice.Unit
+  module C = D
+
+  (* let should_join x y = D.equal x y (* fully path-sensitive *) *)
+  let should_not_join x y = match x, y with
+    | `Lifted x, `Lifted y -> x <> y
+    | _, _ -> false
+  let should_join x y = not (should_not_join x y)
+
+  let evil = ref None
+
+  let step d prev_node node =
+    match !evil with
+    | Some (n, i) when Node.equal node n ->
+      `Lifted i
+    | _ -> d
+
+  let step_ctx ctx = step ctx.local ctx.prev_node ctx.node
+
+  (* transfer functions *)
+  let assign ctx (lval:lval) (rval:exp) : D.t =
+    step_ctx ctx
+
+  let vdecl ctx (_:varinfo) : D.t =
+    step_ctx ctx
+
+  let branch ctx (exp:exp) (tv:bool) : D.t =
+    step_ctx ctx
+
+  let body ctx (f:fundec) : D.t =
+    step_ctx ctx
+
+  let return ctx (exp:exp option) (f:fundec) : D.t =
+    step_ctx ctx
+
+  let enter ctx (lval: lval option) (f:varinfo) (args:exp list) : (D.t * D.t) list =
+    (* ctx.local doesn't matter here? *)
+    [ctx.local, step ctx.local ctx.prev_node (FunctionEntry f)]
+
+  let combine ctx (lval:lval option) fexp (f:varinfo) (args:exp list) fc (au:D.t) : D.t =
+    step au (Function f) ctx.node
+
+  let special ctx (lval: lval option) (f:varinfo) (arglist:exp list) : D.t =
+    step_ctx ctx
+
+  let action ctx = function
+    | Actions.SetObserver (setname, i) when setname = name () ->
+      evil := Some (ctx.node, i);
+      `Lifted i
+    | _ -> ctx.local
+
+  (* let startstate v = `Lifted 0 *)
+  let startstate v = D.bot ()
+  let otherstate v = D.top ()
+  let exitstate  v = D.top ()
+end
+
+let _ =
+  MCP.register_analysis (module TestObserver)

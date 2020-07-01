@@ -619,6 +619,16 @@ struct
     let paths = List.map combine paths in
     List.fold_left D.join (D.bot ()) paths
 
+  let tf_normal_call ctx lv e f args getl sidel getg sideg =
+    let d = tf_normal_call ctx lv e f args getl sidel getg sideg in
+    if Svcomp.is_error_function f then begin
+      let v' = ctx.prev_node, ctx.context () in
+      let d' = getl v' in
+      let d'' = S.action { ctx with local = d'; node = ctx.node } (Actions.SetObserver ("testobserver", 1)) in
+      sidel v' d''
+    end;
+    d
+
   let tf_special_call ctx lv f args = S.special ctx lv f args
 
   let tf_proc var edge prev_node lv e args getl sidel getg sideg d =
