@@ -495,6 +495,7 @@ sig
   val intrpt: (D.t, G.t, C.t) ctx -> D.t
   val asm   : (D.t, G.t, C.t) ctx -> D.t
   val skip  : (D.t, G.t, C.t) ctx -> D.t
+  val action: (D.t, G.t, C.t) ctx -> Actions.t -> D.t
 
 
   val special : (D.t, G.t, C.t) ctx -> lval option -> varinfo -> exp list -> D.t
@@ -643,6 +644,8 @@ struct
     x.local (* Just ignore. *)
 
   let skip x = x.local (* Just ignore. *)
+
+  let action x _ = x.local (* Just ignore. *)
 
   let query _ (q:Queries.t) = Queries.Result.top ()
   (* Don't know anything --- most will want to redefine this. *)

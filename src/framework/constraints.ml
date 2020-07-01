@@ -73,6 +73,9 @@ struct
   let skip ctx =
     D.lift @@ S.skip (conv ctx)
 
+  let action ctx action =
+    D.lift @@ S.action (conv ctx) action
+
   let enter ctx r f args =
     List.map (fun (x,y) -> D.lift x, D.lift y) @@ S.enter (conv ctx) r f args
 
@@ -150,6 +153,9 @@ struct
 
   let skip ctx =
     S.skip (conv ctx)
+
+  let action ctx action =
+    S.action (conv ctx) action
 
   let enter ctx r f args =
     S.enter (conv ctx) r f args
@@ -239,6 +245,7 @@ struct
   let intrpt ctx      = lift_fun ctx (lift ctx) S.intrpt identity
   let asm ctx         = lift_fun ctx (lift ctx) S.asm    identity
   let skip ctx        = lift_fun ctx (lift ctx) S.skip   identity
+  let action ctx action = lift_fun ctx (lift ctx) S.action ((|>) action)
   let special ctx r f args        = lift_fun ctx (lift ctx) S.special ((|>) args % (|>) f % (|>) r)
   let combine' ctx r fe f args fc es = lift_fun ctx (lift ctx) S.combine (fun p -> p r fe f args fc (fst es))
 
@@ -364,6 +371,7 @@ struct
   let intrpt ctx      = lift_fun ctx S.intrpt identity
   let asm ctx         = lift_fun ctx S.asm    identity
   let skip ctx        = lift_fun ctx S.skip   identity
+  let action ctx action = lift_fun ctx S.action ((|>) action)
   let special ctx r f args       = lift_fun ctx S.special ((|>) args % (|>) f % (|>) r)
 
   let enter ctx r f args =
@@ -414,6 +422,7 @@ struct
   let intrpt ctx      = lift_fun ctx S.intrpt identity
   let asm ctx         = lift_fun ctx S.asm    identity
   let skip ctx        = lift_fun ctx S.skip   identity
+  let action ctx action = lift_fun ctx S.action ((|>) action)
   let special ctx r f args       = lift_fun ctx S.special ((|>) args % (|>) f % (|>) r)
 
   let enter ctx r f args =
@@ -487,6 +496,7 @@ struct
   let intrpt ctx      = lift_fun ctx D.lift   S.intrpt identity            `Bot
   let asm ctx         = lift_fun ctx D.lift   S.asm    identity           `Bot
   let skip ctx        = lift_fun ctx D.lift   S.skip   identity           `Bot
+  let action ctx action = lift_fun ctx D.lift S.action ((|>) action)      `Bot
   let special ctx r f args       = lift_fun ctx D.lift S.special ((|>) args % (|>) f % (|>) r)        `Bot
   let combine ctx r fe f args fc es = lift_fun ctx D.lift S.combine (fun p -> p r fe f args fc (D.unlift es)) `Bot
 
@@ -993,6 +1003,9 @@ struct
       with Deadcode -> a
     in
     D.fold k ctx.local a
+
+  let action ctx action =
+    fold' ctx Spec.action (fun h -> h action) (fun acc x -> D.add x acc) (D.empty ())
 
   let sync ctx =
     fold' ctx Spec.sync identity (fun (a,b) (a',b') -> D.add a' a, b'@b) (D.empty (), [])

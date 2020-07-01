@@ -161,6 +161,11 @@ struct
     let w = step_ctx ctx in
     d, w
 
+  let action ctx action =
+    let d = S.action (unlift_ctx ctx) action in
+    let w = snd ctx.local in (* action is a self-loop and doesn't step to next node *)
+    d, w
+
   let special ctx r f args =
     let d = S.special (unlift_ctx ctx) r f args in
     let w = step_ctx ctx in

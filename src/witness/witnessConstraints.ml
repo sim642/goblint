@@ -291,6 +291,9 @@ struct
     in
     D.fold' k ctx.local a
 
+  let action ctx action =
+    fold'' ctx Spec.action (fun h -> h action) (fun acc _ r x -> D.add x r acc) (D.empty ())
+
   let sync ctx =
     (* TODO: no idea if this is right *)
     fold'' ctx Spec.sync identity (fun (a,b) _ r (a',b') -> D.add a' r a, b'@b) (D.empty (), [])
