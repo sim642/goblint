@@ -134,6 +134,20 @@ struct
 
   let name () = "testobserver"
 
+  module PathArg =
+  struct
+    (* path_nofun *)
+    let path = [(21, 22); (22, 26); (26, 28)]
+  end
+
+  module Automaton = ObserverAutomaton.KMP (
+    struct
+      type t = int * int
+      let equal (p1, n1) (p2, n2) = p1 = p2 && n1 = n2
+      let pattern = Array.of_list PathArg.path
+    end
+  )
+
   module ChainParams =
   struct
     (* let n = List.length Arg.path *)
@@ -144,18 +158,42 @@ struct
   module G = Lattice.Unit
   module C = D
 
-  (* let should_join x y = D.equal x y (* fully path-sensitive *) *)
-  let should_not_join x y = match x, y with
+  let should_join x y = D.equal x y (* fully path-sensitive *)
+  (* let should_not_join x y = match x, y with
     | `Lifted x, `Lifted y -> x <> y
     | _, _ -> false
-  let should_join x y = not (should_not_join x y)
+  let should_join x y = not (should_not_join x y) *)
 
   let evil = ref None
 
-  let step d prev_node node =
+  (* let step d prev_node node =
     match !evil with
     | Some (n, i) when Node.equal node n ->
       `Lifted i
+    | _ -> d *)
+  let step d prev_node node =
+    let get_sid = function
+      | Statement s -> s.sid
+      | _ -> -1
+    in
+    match !evil, d with
+    | Some _, `Lifted q -> begin
+        let q' = Automaton.next q (get_sid prev_node, get_sid node) in
+        if Automaton.accepting q' then
+          raise Deadcode
+        else
+          `Lifted q'
+      end
+    | Some _, `Bot -> begin
+        let q = 0 in
+        let q' = Automaton.next q (get_sid prev_node, get_sid node) in
+        if Automaton.accepting q' then
+          raise Deadcode
+        else
+          match q' with
+          (* | 0 -> `Bot *)
+          | _ -> `Lifted q'
+      end
     | _ -> d
 
   let step_ctx ctx = step ctx.local ctx.prev_node ctx.node

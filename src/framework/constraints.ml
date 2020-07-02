@@ -619,14 +619,32 @@ struct
     let paths = List.map combine paths in
     List.fold_left D.join (D.bot ()) paths
 
+  let side_action ctx getl sidel n c action =
+    let v = (n, c) in
+    let y = getl v in
+    let ctx' =
+      { ctx with
+        prev_node = n;
+        node = n;
+        local = y;
+        (* TODO: other fields *)
+      }
+    in
+    let y' = S.action ctx' action in
+    sidel v y'
+
+  module IH = Hashtbl.Make (IntDomain.Integers)
+  let evil = IH.create 100
+
+  let refine_violation ctx getl sidel =
+    (* let node = ctx.prev_node in *)
+    let node = Statement (IH.find evil (Int64.of_int 21)) in
+    side_action ctx getl sidel node (ctx.context ()) (Actions.SetObserver ("testobserver", 0))
+
   let tf_normal_call ctx lv e f args getl sidel getg sideg =
     let d = tf_normal_call ctx lv e f args getl sidel getg sideg in
-    if Svcomp.is_error_function f then begin
-      let v' = ctx.prev_node, ctx.context () in
-      let d' = getl v' in
-      let d'' = S.action { ctx with local = d'; node = ctx.node } (Actions.SetObserver ("testobserver", 1)) in
-      sidel v' d''
-    end;
+    if Svcomp.is_error_function f then
+      refine_violation ctx getl sidel;
     d
 
   let tf_special_call ctx lv f args = S.special ctx lv f args
@@ -697,6 +715,11 @@ struct
     d
 
   let system (v,c) =
+    begin match v with
+    | Statement s ->
+      IH.add evil (Int64.of_int s.sid) s
+    | _ -> ()
+    end;
     match v with
     | FunctionEntry _ when full_context ->
       [fun _ _ _ _ -> S.val_of c]
