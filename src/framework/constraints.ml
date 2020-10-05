@@ -854,15 +854,21 @@ module N = struct let topname = "Top" end
 
 (** Add path sensitivity to a analysis *)
 module PathSensitive2 (Spec:Spec)
-  : Spec
+  (* : Spec
     with type D.t = SetDomain.Hoare(Spec.D)(N).t
      and module G = Spec.G
-     and module C = Spec.C
+     and module C = Spec.C *)
 =
 struct
   module D =
   struct
-    include SetDomain.Hoare (Spec.D) (N) (* TODO is it really worth it to check every time instead of just using sets and joining later? *)
+    (* include SetDomain.Hoare (Spec.D) (N) (* TODO is it really worth it to check every time instead of just using sets and joining later? *) *)
+    module E =
+    struct
+      include Spec.D
+      let same_partition = Spec.should_join
+    end
+    include PartitionDomain2.Make (E)
     let name () = "PathSensitive (" ^ name () ^ ")"
 
     let pretty_diff () ((s1:t),(s2:t)): Pretty.doc =
@@ -888,7 +894,7 @@ struct
       iter print_one x
 
     (* join elements in the same partition (specified by should_join) *)
-    let join_reduce a =
+    (* let join_reduce a =
       let rec loop js = function
         | [] -> js
         | x::xs -> let (j,r) = List.fold_left (fun (j,r) x ->
@@ -906,7 +912,7 @@ struct
     let join = binop join
     let meet = binop meet
     let widen = binop widen
-    let narrow = binop narrow
+    let narrow = binop narrow *)
 
     let invariant c s = fold (fun x a ->
         Invariant.(a || Spec.D.invariant c x) (* TODO: || correct? *)

@@ -73,7 +73,20 @@ struct
 end
 
 module RS = struct
-  include PartitionDomain.Set (VFB)
+  (* include PartitionDomain.Set (VFB) *)
+  module E =
+  struct
+    include VFB
+    let same_partition = collapse
+    let bot () = failwith "VFB.bot"
+    let is_bot _ = failwith "VFB.is_bot"
+    let meet _ _ = failwith "VFB.meet"
+    let widen _ _ = failwith "VFB.widen"
+    let narrow _ _ = failwith "VFB.narrow"
+  end
+
+  include PartitionDomain2.Make (E)
+
   let single_vf vf = singleton (VFB.of_vf vf)
   let single_bullet = singleton (VFB.bullet)
   let remove_bullet x = remove VFB.bullet x
@@ -93,16 +106,40 @@ module RS = struct
 
   let kill x s = map (VFB.kill x) s
   let replace x exp s = map (VFB.replace x exp) s
+
+  let same_partition (s1:t) (s2:t): bool =
+    let f vf2 res =
+      res || exists (fun vf1 -> VFB.collapse vf1 vf2) s1
+    in
+    fold f s2 false
+
+  let widen s1 s2 = s2
+  (* let narrow = meet *)
+  let narrow s1 s2 = s1
 end
 
 module RegPart = struct
-  include PartitionDomain.Make  (RS)
+  (* include PartitionDomain.Make  (RS) *)
+  include PartitionDomain2.Make (RS)
+
   let real_region r =
     RS.cardinal r > 1 || try VFB.real_region (RS.choose r)
     with Not_found -> false
 
   let add r p = if real_region r then add r p else p
+
+  let find_class x s = find_partition (RS.singleton x) s
+  let closure (p:t) (s:RS.t): RS.t =
+    let f x res =
+      let xc = find_class x p in
+      RS.join xc res
+    in
+    RS.fold f s (RS.empty ())
+
+  let widen s1 s2 = s2
+  let narrow = meet
 end
+
 module RegMap = MapDomain.MapBot (VF) (RS)
 
 module Reg =
