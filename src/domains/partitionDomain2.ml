@@ -4,7 +4,7 @@ sig
   val same_partition: t -> t -> bool
   val leq: t -> t -> bool
   val join: t -> t -> t
-  (* val is_bot: t -> bool *)
+  val is_bot: t -> bool
   (* val bot: unit -> t *)
   val meet: t -> t -> t
   val widen: t -> t -> t
@@ -13,7 +13,33 @@ end
 
 module type S =
 sig
-  include SetDomain.S
+  include Lattice.S
+  type elt
+  val empty: unit -> t
+  val is_empty: t -> bool
+  val mem: elt -> t -> bool
+  val add: elt -> t -> t
+  val singleton: elt -> t
+  val remove: elt -> t -> t
+  val union: t -> t -> t
+  (* val inter: t -> t -> t *)
+  val diff: t -> t -> t
+  (* val subset: t -> t -> bool *)
+  val iter: (elt -> unit) -> t -> unit
+  val map: (elt -> elt) -> t -> t
+  val fold: (elt -> 'a -> 'a) -> t -> 'a -> 'a
+  val for_all: (elt -> bool) -> t -> bool
+  val exists: (elt -> bool) -> t -> bool
+  val filter: (elt -> bool) -> t -> t
+  (* val partition: (elt -> bool) -> t -> t * t *)
+  val cardinal: t -> int
+  val elements: t -> elt list
+  val of_list: elt list -> t
+  (* val min_elt: t -> elt *)
+  (* val max_elt: t -> elt *)
+  val choose: t -> elt
+  (* val split: elt -> t -> t * bool * t *)
+  module E: Partitioned with type t = elt
 
   val find_partition: elt -> t -> elt
 end
@@ -24,6 +50,9 @@ struct
   module S = SetDomain.Make (E)
   include S
 
+  let name () = "PartitionDomain (" ^ E.name () ^ ")"
+
+  (* assuming no leq between partitions *)
   let leq s t = S.for_all (fun x -> S.exists (fun y -> E.leq x y) t) s
 
   (* TODO: do joins without requiring bot *)
@@ -41,8 +70,10 @@ struct
   let lt x y = E.leq x y && not (E.leq y x)
   let simplify s =
     (* assert (S.for_all (fun x -> not (E.is_bot x)) s); *)
-    S.filter (fun x -> not (S.exists (lt x) s)) s
-    (* S.filter (fun x -> not (E.is_bot x) && not (S.exists (lt x) s)) s *)
+    (* S.filter (fun x -> not (S.exists (lt x) s)) s *)
+    S.filter (fun x -> not (E.is_bot x) && not (S.exists (lt x) s)) s
+
+  (* let join s t = join s t |> simplify *)
   let apply_list f s = S.elements s |> f |> S.of_list
   let join_partitions a =
     let rec loop js = function
@@ -67,9 +98,59 @@ struct
       S.choose (S.filter (E.same_partition x) s)
     with
       Not_found -> x
+
+  let of_list s = simplify (S.of_list s) |> join_partitions
+  let arbitrary () = QCheck.map ~rev:elements of_list @@ QCheck.small_list (E.arbitrary ())
 end
 
 (*
   E.leq x y ==> E.same_partition x y ?
     E.join x y = y (maximal kept)
  *)
+
+module type PartitionMapping =
+sig
+  include Printable.S
+  type e
+  val f: e -> t
+end
+
+(* module type S2 = S with type elt = E.t *)
+
+module Optimized (P: S) (F: PartitionMapping with type e = P.E.t): S with type elt = P.E.t =
+struct
+  module E = P.E
+  type elt = P.E.t
+  include MapDomain.MapBot (
+      struct
+        include F
+        let classify _ = failwith "classify"
+        let class_name _ = failwith "class_name"
+        let trace_enabled = false
+      end
+    ) (P)
+
+  let empty = bot
+  let is_empty = is_bot
+
+  let elements m = fold (fun k v acc -> P.elements v @ acc) m []
+  let choose m = List.hd (elements m)
+  let cardinal m = List.length (elements m)
+  let exists p m = List.exists p (elements m)
+  let for_all p m = List.for_all p (elements m)
+  let singleton x = add (F.f x) (P.singleton x) (empty ())
+  let of_list l = List.fold_left (fun acc x -> add (F.f x) (P.singleton x) acc) (empty ()) l
+  let union = join
+  let find_partition x m = P.find_partition x (find (F.f x) m)
+  let mem e m = exists (E.leq e) m
+  let apply_list f m = of_list (f (elements m))
+  let diff a b = apply_list (List.filter (fun x -> not (mem x b))) a
+  let add e m = if mem e m then m else join (singleton e) m
+  let remove x m =
+    let ngreq x y = not (E.leq y x) in
+    apply_list (List.filter (ngreq x)) m
+  let iter f m = iter (fun k v -> P.iter (fun x -> f x) v) m
+  let map f m = apply_list (List.map f) m
+  let fold f m a = fold (fun k v acc -> P.fold f v acc) m a
+  let filter f m = apply_list (List.filter f) m
+end

@@ -195,3 +195,17 @@ struct
 
   let tests = E.tests @ L.tests @ J.tests_non_assoc @ M.tests @ B.tests @ T.tests @ C.tests @ W.tests @ N.tests
 end
+
+module AllNonTop (D: Lattice.S): S =
+struct
+  module E = Equal (D)
+  module L = Leq (D)
+  module J = Join (D)
+  module M = Meet (D)
+  module B = Bot (D)
+  module C = Connect (D)
+  module W = Widen (D)
+  module N = Narrow (D)
+
+  let tests = E.tests @ L.tests @ J.tests @ M.tests @ B.tests @ C.tests @ W.tests @ N.tests
+end

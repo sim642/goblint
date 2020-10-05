@@ -74,18 +74,18 @@ end
 
 module RS = struct
   (* include PartitionDomain.Set (VFB) *)
-  module E =
+  module VFBE =
   struct
     include VFB
     let same_partition = collapse
-    (* let bot () = failwith "VFB.bot"
-    let is_bot _ = failwith "VFB.is_bot" *)
+    (* let bot () = failwith "VFB.bot" *)
+    let is_bot _ = failwith "VFB.is_bot"
     let meet _ _ = failwith "VFB.meet"
     let widen _ _ = failwith "VFB.widen"
     let narrow _ _ = failwith "VFB.narrow"
   end
 
-  include PartitionDomain2.Make (E)
+  include PartitionDomain2.Make (VFBE)
 
   let single_vf vf = singleton (VFB.of_vf vf)
   let single_bullet = singleton (VFB.bullet)

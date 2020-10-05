@@ -863,12 +863,12 @@ struct
   module D =
   struct
     (* include SetDomain.Hoare (Spec.D) (N) (* TODO is it really worth it to check every time instead of just using sets and joining later? *) *)
-    module E =
+    module SpecDE =
     struct
       include Spec.D
       let same_partition = Spec.should_join
     end
-    include PartitionDomain2.Make (E)
+    include PartitionDomain2.Make (SpecDE)
     let name () = "PathSensitive (" ^ name () ^ ")"
 
     let pretty_diff () ((s1:t),(s2:t)): Pretty.doc =

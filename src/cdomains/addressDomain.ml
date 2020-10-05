@@ -25,11 +25,11 @@ struct
 
   module Addr = Lval.NormalLat (Idx)
   (* include SetDomain.HoarePO (Addr) *)
-  module E =
+  module AddrE =
   struct
     include Addr
-    (* let is_bot _ = false
-    let bot () = failwith "Addr.bot" *)
+    let is_bot _ = false
+    (* let bot () = failwith "Addr.bot" *)
     let same_partition x y =
       try
         ignore (merge `Join x y);
@@ -37,7 +37,7 @@ struct
       with
         | Lattice.Uncomparable -> false
   end
-  include PartitionDomain2.Make (E)
+  include PartitionDomain2.Make (AddrE)
   let is_element x s =
     cardinal s = 1 && choose s = x
 
