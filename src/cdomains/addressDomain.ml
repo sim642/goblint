@@ -28,8 +28,8 @@ struct
   module E =
   struct
     include Addr
-    let is_bot _ = false
-    let bot () = failwith "Addr.bot"
+    (* let is_bot _ = false
+    let bot () = failwith "Addr.bot" *)
     let same_partition x y =
       try
         ignore (merge `Join x y);

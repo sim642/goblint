@@ -4,7 +4,7 @@ sig
   val same_partition: t -> t -> bool
   val leq: t -> t -> bool
   val join: t -> t -> t
-  val is_bot: t -> bool
+  (* val is_bot: t -> bool *)
   (* val bot: unit -> t *)
   val meet: t -> t -> t
   val widen: t -> t -> t
@@ -40,8 +40,9 @@ struct
   (* adapted from SetDomain.Hoare *)
   let lt x y = E.leq x y && not (E.leq y x)
   let simplify s =
-    assert (S.for_all (fun x -> not (E.is_bot x)) s);
-    S.filter (fun x -> not (E.is_bot x) && not (S.exists (lt x) s)) s
+    (* assert (S.for_all (fun x -> not (E.is_bot x)) s); *)
+    S.filter (fun x -> not (S.exists (lt x) s)) s
+    (* S.filter (fun x -> not (E.is_bot x) && not (S.exists (lt x) s)) s *)
   let apply_list f s = S.elements s |> f |> S.of_list
   let join_partitions a =
     let rec loop js = function

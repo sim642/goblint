@@ -78,8 +78,8 @@ module RS = struct
   struct
     include VFB
     let same_partition = collapse
-    let bot () = failwith "VFB.bot"
-    let is_bot _ = failwith "VFB.is_bot"
+    (* let bot () = failwith "VFB.bot"
+    let is_bot _ = failwith "VFB.is_bot" *)
     let meet _ _ = failwith "VFB.meet"
     let widen _ _ = failwith "VFB.widen"
     let narrow _ _ = failwith "VFB.narrow"
