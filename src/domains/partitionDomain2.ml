@@ -5,7 +5,7 @@ sig
   val leq: t -> t -> bool
   val join: t -> t -> t
   val is_bot: t -> bool
-  val bot: unit -> t
+  (* val bot: unit -> t *)
   val meet: t -> t -> t
   val widen: t -> t -> t
   val narrow: t -> t -> t
@@ -39,7 +39,9 @@ struct
 
   (* adapted from SetDomain.Hoare *)
   let lt x y = E.leq x y && not (E.leq y x)
-  let simplify s = S.filter (fun x -> not (E.is_bot x) && not (S.exists (lt x) s)) s
+  let simplify s =
+    assert (S.for_all (fun x -> not (E.is_bot x)) s);
+    S.filter (fun x -> not (E.is_bot x) && not (S.exists (lt x) s)) s
   let apply_list f s = S.elements s |> f |> S.of_list
   let join_partitions a =
     let rec loop js = function
@@ -51,12 +53,12 @@ struct
     in
     apply_list (loop []) a
   let product_bot op s t =
-    List.map (fun x -> List.map (fun y -> op x y) (S.elements t)) (S.elements s) |> List.flatten |> fun x -> simplify (S.of_list x)
+    List.map (fun x -> List.filter_map (fun y -> if E.same_partition x y then Some (op x y) else None) (S.elements t)) (S.elements s) |> List.flatten |> fun x -> simplify (S.of_list x)
   let product_widen op s t =
-    List.map (fun x -> List.map (fun y -> op x y) (S.elements t)) (S.elements s) |> List.flatten |> fun x -> simplify (S.union t (S.of_list x))
+    List.map (fun x -> List.filter_map (fun y -> if E.same_partition x y then op x y else None) (S.elements t)) (S.elements s) |> List.flatten |> fun x -> simplify (S.union t (S.of_list x))
   let meet s t = product_bot E.meet s t |> join_partitions
 
-  let widen s t = product_widen (fun x y -> if E.leq x y then E.widen x y else E.bot ()) s t |> join_partitions
+  let widen s t = product_widen (fun x y -> if E.leq x y then Some (E.widen x y) else None) s t |> join_partitions
   let narrow s t = product_bot (fun x y -> if E.leq y x then E.narrow x y else x) s t |> join_partitions
 
   let find_partition x s =

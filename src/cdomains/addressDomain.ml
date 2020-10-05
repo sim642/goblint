@@ -24,7 +24,22 @@ struct
   include Printable.Std (* for default invariant, tag, ... *)
 
   module Addr = Lval.NormalLat (Idx)
-  include SetDomain.HoarePO (Addr)
+  (* include SetDomain.HoarePO (Addr) *)
+  module E =
+  struct
+    include Addr
+    let is_bot _ = false
+    let bot () = failwith "Addr.bot"
+    let same_partition x y =
+      try
+        ignore (merge `Join x y);
+        true
+      with
+        | Lattice.Uncomparable -> false
+  end
+  include PartitionDomain2.Make (E)
+  let is_element x s =
+    cardinal s = 1 && choose s = x
 
   type field = Addr.field
   type idx = Idx.t
